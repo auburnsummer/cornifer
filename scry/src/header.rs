@@ -1,6 +1,7 @@
-use anyhow::bail;
+use std::io::Read;
 
-use crate::reader::ScryByteReader;
+use crate::{reader::ScryByteReader, errors::ScryError};
+
 
 #[derive(PartialEq, Debug)]
 pub struct GzipHeader {
@@ -31,22 +32,22 @@ pub enum OperatingSystem {
 /**
  * Read a Header struct out of a ScryReader
  */
-pub fn read_header(sr: &mut ScryByteReader) -> anyhow::Result<GzipHeader> {
+pub fn read_header<R: Read>(sr: &mut ScryByteReader<R>) -> Result<GzipHeader, ScryError> {
     sr.begin_crc();
     // id1 and id2
     let id1 = sr.read_u8()?;
     let id2 = sr.read_u8()?;
     if id1 != 0x1f || id2 != 0x8b {
-        bail!("Header is not a GZIP header.");
+        return Err(ScryError::NotGZIPHeader);
     }
     // cm
     let cm = sr.read_u8()?;
     if cm != 8 {
-        bail!("Compression method must be 8.");
+        return Err(ScryError::InvalidCompressionMethod);
     }
     // flgs
     let flg = sr.read_u8()?;
-    let ftext = (flg >> 0) & 1;
+    let ftext = flg & 1;
     let fhcrc = (flg >> 1) & 1;
     let fextra = (flg >> 2) & 1;
     let fname = (flg >> 3) & 1;
@@ -95,17 +96,17 @@ pub fn read_header(sr: &mut ScryByteReader) -> anyhow::Result<GzipHeader> {
         let truncated = hcrc_actual as u16;
         let hcrc = sr.read_u16_le()?; 
         if hcrc != truncated {
-            bail!("Header CRC is incorrect, expected 0x{truncated:X} but got 0x{hcrc:X}");
+            return Err(ScryError::InvalidHeaderCRC { expected: truncated, found: hcrc })
         }
     }
 
     Ok(GzipHeader {
         text: ftext == 1,
-        name: name,
-        comment: comment,
-        mtime: mtime,
+        name,
+        comment,
+        mtime,
         extra: xfl,
-        os: os
+        os
     })
 }
 
@@ -136,7 +137,7 @@ mod test {
         let h = read_header(&mut sr);
         match h {
             Ok(_) => panic!("Return value should have been an Error."),
-            Err(e) => assert_eq!(format!("{}", e), "Compression method must be 8."),
+            Err(e) => assert_eq!(format!("{}", e), "Compression method must be 8"),
         };
     }
 
@@ -192,5 +193,17 @@ mod test {
             }),
             Err(e) => panic!("{}", e)
         }
+    }
+
+    #[rstest]
+    fn read_header_errors_on_incorrect_hcrc() {
+        let inner: &[u8] = include_bytes!("../testfiles/testIncorrectHCRC.txt.gz");
+        let mut sr = ScryByteReader::new(Box::new(inner));
+        let h = read_header(&mut sr);
+        match h {
+            Ok(_) => panic!("Should have thrown an error"),
+            Err(e) => assert_eq!(format!("{}", e), "Header CRC is incorrect, expected 0xE8EE but got 0xE7EE"),
+        }
+
     }
 }

@@ -9,6 +9,9 @@ edition = "2021"
 anyhow = "1.0.69"
 crc = "3.0.1"
 nohash-hasher = "0.2.0"
+rand = "0.8.5"
+thiserror = "1.0.39"
 
 [dev-dependencies]
+flate2 = "1.0.25"
 rstest = "0.16.0"

@@ -4,6 +4,7 @@ use nohash_hasher::{IntMap, NoHashHasher};
 
 const MAX_BITS: u16 = 15;
 
+#[derive(PartialEq)]
 pub struct HuffmanTree {
     lut: HashMap<u16, HuffmanCode, BuildHasherDefault<NoHashHasher<u16>>>
 }
@@ -16,10 +17,11 @@ pub struct HuffmanCode {
 
 impl HuffmanTree {
     pub fn new(bit_lengths: &[u8]) -> Self {
+        // https://www.rfc-editor.org/rfc/rfc1951
         // Count the number of codes for each code length.  Let
         // bl_count[N] be the number of codes of length N, N >= 1.
-        let mut bl_count = [0 as u16; (MAX_BITS + 1) as usize];
-        let mut next_code = [0 as u16; (MAX_BITS + 1) as usize];
+        let mut bl_count = [0_u16; (MAX_BITS + 1) as usize];
+        let mut next_code = [0_u16; (MAX_BITS + 1) as usize];
         for len in bit_lengths {
             let len = *len as usize;
             bl_count[len] += 1
@@ -33,7 +35,7 @@ impl HuffmanTree {
             next_code[bits] = code;
         }
         // Assign numerical values to all codes.
-        let mut final_codes = vec![0 as u16; bit_lengths.len()];
+        let mut final_codes = vec![0_u16; bit_lengths.len()];
         for (i, &len) in bit_lengths.iter().enumerate() {
             if len != 0 {
                 let len = len as usize;
@@ -46,20 +48,32 @@ impl HuffmanTree {
         }
         // put them in the lookup table.
         let mut lut: IntMap<u16, HuffmanCode> = IntMap::default();
-
         for i in 0..bit_lengths.len() {
             let len = bit_lengths[i];
             let code = final_codes[i];
             let i = i as u16;
             lut.insert(code, HuffmanCode {
                 symbol: i,
-                len: len
+                len
             });
         }
 
         Self {
             lut
         }
+    }
+
+    pub fn fixed() -> Self {
+        let mut test_values: Vec<u8> = vec![];
+        for (next, bit_len) in [
+            (143, 8),
+            (255, 9),
+            (279, 7),
+            (287, 8)
+        ] {
+            test_values.resize(next + 1, bit_len);
+        }
+        Self::new(&test_values)
     }
 
     pub fn decode(&self, code: u16, len: u8) -> Option<u16> {
@@ -74,6 +88,10 @@ impl HuffmanTree {
     #[cfg(test)]
     pub fn get_lut(&self) -> &HashMap<u16, HuffmanCode, BuildHasherDefault<NoHashHasher<u16>>> {
         return &self.lut;
+    }
+
+    pub fn export(&self) {
+        
     }
 }
 
@@ -126,20 +144,7 @@ mod test {
 
     #[rstest]
     pub fn test_lut_fixed() {
-        let mut test_values: Vec<u8> = vec![];
-        for _ in 0..=143 {
-            test_values.push(8);
-        }
-        for _ in 144..=255 {
-            test_values.push(9);
-        }
-        for _ in 256..=279 {
-            test_values.push(7);
-        }
-        for _ in 280..=287 {
-            test_values.push(8);
-        }
-        let tree = HuffmanTree::new(&test_values);
+        let tree = HuffmanTree::fixed();
         let codes = tree.get_lut();
         /*
         Lit Value    Bits        Codes
