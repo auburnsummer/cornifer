@@ -55,26 +55,20 @@ impl CircularBuffer {
     }
 
     pub fn push_from_buffer(&mut self, lookback: u16, size: u16) -> Result<(), ScryError> {
-        if lookback == 0 || lookback > 32768 || size < 3 || size > 258 {
+        if lookback > 32768 {
             return Err(ScryError::InvalidLengthDistancePair { lookback, size })
         }
-        let mut vec: Vec<u8> = vec![0; size.into()];
-        for i in 0..size {
-            let i = i as isize;
+        let lookback = lookback as isize;
+        let len = self.buffer.len() as isize;
+        for _ in 0..size {
             let head = self.head as isize;
-            let len = self.buffer.len() as isize;
-            let lookback = lookback as isize;
-            let target_byte = (head - lookback - i).rem_euclid(len) as usize;
-            vec[i as usize] = self.buffer[target_byte];
+            let target = (head - lookback).rem_euclid(len) as usize;
+            self.push(self.buffer[target]);
         }
-        for byte in vec {
-            self.push(byte);
-        }
-
         Ok(())
     }
 
-}
+} 
 
 #[cfg(test)]
 mod test {
@@ -95,6 +89,17 @@ mod test {
     }
 
     #[rstest]
+    pub fn test_get_normalized_buffer_overwrite() {
+        let mut cb = CircularBuffer::new(8);
+        for i in 0..9 {
+            cb.push(i);
+        }
+        let nb = cb.get_normalized_buffer();
+        assert_eq!(vec![1, 2, 3, 4, 5, 6, 7, 8], nb);
+
+    }
+
+    #[rstest]
     pub fn test_push_from_buffer() {
         let mut cb = CircularBuffer::new(8);
         for i in 0..8 {
@@ -103,9 +108,19 @@ mod test {
         cb.push_from_buffer(5, 3).unwrap();
         // [0, 1, 2, 3, 4, 5, 6, 7]
         // we should go back 5 and write 3
-        // which is [2, 3, 4]
+        // which is [3, 4, 5]
         // so it should look like
-        let expected: Vec<u8> = vec![3, 4, 5, 6, 7, 2, 3, 4];
+        let expected: Vec<u8> = vec![3, 4, 5, 6, 7, 3, 4, 5];
         assert_eq!(cb.get_normalized_buffer(), expected);
     }
+
+    #[rstest]
+    pub fn test_push_from_buffer_rle() {
+        let mut cb = CircularBuffer::new(800);
+        cb.push(3);
+        cb.push_from_buffer(1, 799).unwrap();
+        let expected: Vec<u8> = vec![3; 800];
+        assert_eq!(cb.get_normalized_buffer(), expected);
+    }
+
 }
