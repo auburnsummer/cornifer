@@ -35,6 +35,11 @@ pub enum ScryError {
         size: u16
     },
 
+    #[error("Tried to read too many bits at once")]
+    InvalidNumberOfBits {
+        num: u8
+    },
+
     /// Represents all other cases of `std::io::Error`.
     #[error(transparent)]
     IOError(#[from] std::io::Error),

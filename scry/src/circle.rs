@@ -67,7 +67,6 @@ impl CircularBuffer {
         }
         Ok(())
     }
-
 } 
 
 #[cfg(test)]

@@ -14,8 +14,6 @@ fn to_u32(i: usize) -> Option<u32> {
     }
 }
 
-
-
 pub struct ScryByteReader<R> {
     // where we are in the file.
     pub current_byte: u32,
@@ -107,10 +105,16 @@ impl<R: Read> ScryByteReader<R> {
         Ok(result)
     }
 
-    pub fn read_two_bits(&mut self) -> Result<u8, ScryError> {
-        let b1 = self.read_bit()?;
-        let b2 = self.read_bit()?;
-        Ok((b2 << 1) | b1)
+    pub fn read_n_bits_le(&mut self, n: u8) -> Result<u16, ScryError> {
+        if n > 16 {
+            return Err(ScryError::InvalidNumberOfBits { num: n })
+        }
+        let mut value: u16 = 0;
+        for i in 0..n {
+            let next_bit = self.read_bit()? as u16;
+            value = value | (next_bit << i);
+        }
+        Ok(value)
     }
 
     pub fn discard_until_next_byte(&mut self) {
@@ -256,7 +260,14 @@ mod test {
         assert_eq!(sr.read_bit().unwrap(), 0);
         assert_eq!(sr.read_bit().unwrap(), 0);
         assert_eq!(sr.read_bit().unwrap(), 0);
+    }
 
-
+    #[rstest]
+    pub fn test_read_n_bits() {
+        let inner: &[u8] = &[0b10011001, 0b00011100];
+        let mut sr = ScryByteReader::new(inner);
+        assert_eq!(sr.read_n_bits_le(2).unwrap(), 0b01);
+        assert_eq!(sr.read_n_bits_le(2).unwrap(), 0b10);
+        assert_eq!(sr.read_n_bits_le(2).unwrap(), 0b01);
     }
 }
