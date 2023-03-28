@@ -4,8 +4,6 @@ Circular buffer.
 
 use rand::Rng;
 
-use std::iter::zip;
-
 use crate::errors::ScryError;
 
 pub struct CircularBuffer {
@@ -26,31 +24,6 @@ impl CircularBuffer {
     pub fn push(&mut self, byte: u8) {
         self.buffer[self.head] = byte;
         self.head = (self.head + 1) % self.buffer.len()
-    }
-
-    pub fn get_normalized_buffer(&self) -> Vec<u8> {
-        let mut buffer2 = vec![0; self.buffer.len()];
-        /*       a0------->a1---------------------a2--------------->a3
-        buffer1  |==================================================|
-        buffer2  |==================================================|
-        copy a1->a3 to a0->a2
-        copy a0->a1 to a2->a3
-         */
-
-        let a0 = 0_usize;
-        let a1 = self.head;
-        let a2 = self.buffer.len() - self.head;
-        let a3 = self.buffer.len();
-
-        for (k1, k2) in zip(a1..a3, a0..a2) {
-            buffer2[k2] = self.buffer[k1];
-        }
-
-        for (k1, k2) in zip(a0..a1, a2..a3) {
-            buffer2[k2] = self.buffer[k1];
-        }
-
-        buffer2
     }
 
     pub fn push_from_buffer(&mut self, lookback: u16, size: u16) -> Result<(), ScryError> {
@@ -78,6 +51,34 @@ impl CircularBuffer {
         }
 
         Ok(v)
+    }
+
+    #[cfg(test)]
+    pub fn get_normalized_buffer(&self) -> Vec<u8> {
+        use std::iter::zip;
+
+        let mut buffer2 = vec![0; self.buffer.len()];
+        /*       a0------->a1---------------------a2--------------->a3
+        buffer1  |==================================================|
+        buffer2  |==================================================|
+        copy a1->a3 to a0->a2
+        copy a0->a1 to a2->a3
+         */
+
+        let a0 = 0_usize;
+        let a1 = self.head;
+        let a2 = self.buffer.len() - self.head;
+        let a3 = self.buffer.len();
+
+        for (k1, k2) in zip(a1..a3, a0..a2) {
+            buffer2[k2] = self.buffer[k1];
+        }
+
+        for (k1, k2) in zip(a0..a1, a2..a3) {
+            buffer2[k2] = self.buffer[k1];
+        }
+
+        buffer2
     }
 }
 
