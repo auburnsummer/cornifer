@@ -1,6 +1,6 @@
-use std::{io::Read};
+use std::io::Read;
 
-use crc::{Digest, Crc, CRC_32_ISO_HDLC};
+use crc::{Crc, Digest, CRC_32_ISO_HDLC};
 
 use crate::errors::ScryError;
 
@@ -24,7 +24,7 @@ pub struct ScryByteReader<R> {
     // once it's passed to this, there's no getting it back.
     inner: R,
     // a crc32 digest. The crc object is static.
-    digest: Option<Digest<'static, u32>>
+    digest: Option<Digest<'static, u32>>,
 }
 
 impl<R: Read> ScryByteReader<R> {
@@ -34,16 +34,22 @@ impl<R: Read> ScryByteReader<R> {
             current_bit: 0,
             buffer: 0,
             inner: reader,
-            digest: None
+            digest: None,
         }
     }
 
     fn read_exact_internal(&mut self, buf: &mut [u8]) -> Result<(), ScryError> {
         let l = match to_u32(buf.len()) {
             Some(i) => i,
-            None => return Err(ScryError::BufferSizeTooLarge)
+            None => return Err(ScryError::BufferSizeTooLarge),
         };
-        self.inner.read_exact(buf)?;
+        match self.inner.read_exact(buf) {
+            Ok(_) => (),
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::UnexpectedEof => return Err(ScryError::EOF),
+                _ => return Err(ScryError::from(e))
+            }
+        }
         if let Some(digest) = &mut self.digest {
             digest.update(buf);
         }
@@ -52,7 +58,7 @@ impl<R: Read> ScryByteReader<R> {
         Ok(())
     }
 
-    pub fn read_u8(&mut self) -> Result<u8, ScryError>  {
+    pub fn read_u8(&mut self) -> Result<u8, ScryError> {
         let mut buffer: [u8; 1] = [0; 1];
         self.read_exact_internal(&mut buffer)?;
 
@@ -107,12 +113,12 @@ impl<R: Read> ScryByteReader<R> {
 
     pub fn read_n_bits_le(&mut self, n: u8) -> Result<u16, ScryError> {
         if n > 16 {
-            return Err(ScryError::InvalidNumberOfBits { num: n })
+            return Err(ScryError::InvalidNumberOfBits { num: n });
         }
         let mut value: u16 = 0;
         for i in 0..n {
             let next_bit = self.read_bit()? as u16;
-            value = value | (next_bit << i);
+            value |= next_bit << i;
         }
         Ok(value)
     }
@@ -122,7 +128,6 @@ impl<R: Read> ScryByteReader<R> {
         // discarding any leftover bits in the current byte.
         self.current_bit = 0;
     }
-
 }
 
 /**
@@ -233,7 +238,6 @@ mod test {
         let inner: &[u8] = &[0b10011001, 0b00011100];
         let mut sr = ScryByteReader::new(inner);
         assert_eq!(sr.current_byte, 0);
-
 
         assert_eq!(sr.read_bit().unwrap(), 1);
 

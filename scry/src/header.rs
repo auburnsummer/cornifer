@@ -1,7 +1,6 @@
 use std::io::Read;
 
-use crate::{reader::ScryByteReader, errors::ScryError};
-
+use crate::{errors::ScryError, reader::ScryByteReader};
 
 #[derive(PartialEq, Debug)]
 pub struct GzipHeader {
@@ -10,7 +9,7 @@ pub struct GzipHeader {
     comment: Option<String>,
     mtime: u32,
     extra: ExtraFlag,
-    os: OperatingSystem
+    os: OperatingSystem,
 }
 
 #[derive(PartialEq, Debug)]
@@ -35,7 +34,15 @@ pub enum OperatingSystem {
 pub fn read_header<R: Read>(sr: &mut ScryByteReader<R>) -> Result<GzipHeader, ScryError> {
     sr.begin_crc();
     // id1 and id2
-    let id1 = sr.read_u8()?;
+    // btw if the first byte fails, we handle that differently, it might be an 
+    // expected EOF
+    let id1 = match sr.read_u8() {
+        Ok(byte) => byte,
+        Err(err) => match err {
+            ScryError::EOF => return Err(ScryError::ExpectedEOF),
+            _ => return Err(err)
+        }
+    };
     let id2 = sr.read_u8()?;
     if id1 != 0x1f || id2 != 0x8b {
         return Err(ScryError::NotGZIPHeader);
@@ -84,19 +91,22 @@ pub fn read_header<R: Read>(sr: &mut ScryByteReader<R>) -> Result<GzipHeader, Sc
     // if fname set...
     let name = match fname {
         1 => Some(sr.read_null_terminated_string()?),
-        _ => None
+        _ => None,
     };
     // if fcomment set...
     let comment = match fcomment {
         1 => Some(sr.read_null_terminated_string()?),
-        _ => None
+        _ => None,
     };
     let hcrc_actual = sr.end_crc().expect("Header always should exist");
-    if fhcrc == 1 { 
+    if fhcrc == 1 {
         let truncated = hcrc_actual as u16;
-        let hcrc = sr.read_u16_le()?; 
+        let hcrc = sr.read_u16_le()?;
         if hcrc != truncated {
-            return Err(ScryError::InvalidHeaderCRC { expected: truncated, found: hcrc })
+            return Err(ScryError::InvalidHeaderCRC {
+                expected: truncated,
+                found: hcrc,
+            });
         }
     }
 
@@ -106,7 +116,7 @@ pub fn read_header<R: Read>(sr: &mut ScryByteReader<R>) -> Result<GzipHeader, Sc
         comment,
         mtime,
         extra: xfl,
-        os
+        os,
     })
 }
 
@@ -117,7 +127,10 @@ pub fn read_header<R: Read>(sr: &mut ScryByteReader<R>) -> Result<GzipHeader, Sc
 mod test {
     use rstest::rstest;
 
-    use crate::{header::{read_header, GzipHeader}, reader::ScryByteReader};
+    use crate::{
+        header::{read_header, GzipHeader},
+        reader::ScryByteReader,
+    };
 
     #[rstest]
     fn read_header_bails_on_non_gzip_header() {
@@ -147,15 +160,18 @@ mod test {
         let mut sr = ScryByteReader::new(Box::new(inner));
         let h = read_header(&mut sr);
         match h {
-            Ok(header) => assert_eq!(header, GzipHeader {
-                comment: None,
-                text: false,
-                name: None,
-                mtime: 0,
-                extra: crate::header::ExtraFlag::Unknown,
-                os: crate::header::OperatingSystem::Unix
-            }),
-            Err(e) => panic!("{}", e)
+            Ok(header) => assert_eq!(
+                header,
+                GzipHeader {
+                    comment: None,
+                    text: false,
+                    name: None,
+                    mtime: 0,
+                    extra: crate::header::ExtraFlag::Unknown,
+                    os: crate::header::OperatingSystem::Unix
+                }
+            ),
+            Err(e) => panic!("{}", e),
         }
     }
 
@@ -165,15 +181,18 @@ mod test {
         let mut sr = ScryByteReader::new(Box::new(inner));
         let h = read_header(&mut sr);
         match h {
-            Ok(header) => assert_eq!(header, GzipHeader {
-                comment: Some("This is a comment".to_string()),
-                text: false,
-                name: Some("filename".to_string()),
-                mtime: 1677648839,
-                extra: crate::header::ExtraFlag::Unknown,
-                os: crate::header::OperatingSystem::Unix
-            }),
-            Err(e) => panic!("{}", e)
+            Ok(header) => assert_eq!(
+                header,
+                GzipHeader {
+                    comment: Some("This is a comment".to_string()),
+                    text: false,
+                    name: Some("filename".to_string()),
+                    mtime: 1677648839,
+                    extra: crate::header::ExtraFlag::Unknown,
+                    os: crate::header::OperatingSystem::Unix
+                }
+            ),
+            Err(e) => panic!("{}", e),
         }
     }
 
@@ -183,15 +202,18 @@ mod test {
         let mut sr = ScryByteReader::new(Box::new(inner));
         let h = read_header(&mut sr);
         match h {
-            Ok(header) => assert_eq!(header, GzipHeader {
-                comment: Some("[gzip comment of reasonable length]\n".to_string()),
-                text: true,
-                name: Some("stCompressThenConcat.txt.1".to_string()),
-                mtime: 1274320850,
-                extra: crate::header::ExtraFlag::FastestAlgorithm,
-                os: crate::header::OperatingSystem::Unix
-            }),
-            Err(e) => panic!("{}", e)
+            Ok(header) => assert_eq!(
+                header,
+                GzipHeader {
+                    comment: Some("[gzip comment of reasonable length]\n".to_string()),
+                    text: true,
+                    name: Some("stCompressThenConcat.txt.1".to_string()),
+                    mtime: 1274320850,
+                    extra: crate::header::ExtraFlag::FastestAlgorithm,
+                    os: crate::header::OperatingSystem::Unix
+                }
+            ),
+            Err(e) => panic!("{}", e),
         }
     }
 
@@ -202,8 +224,10 @@ mod test {
         let h = read_header(&mut sr);
         match h {
             Ok(_) => panic!("Should have thrown an error"),
-            Err(e) => assert_eq!(format!("{}", e), "Header CRC is incorrect, expected 0xE8EE but got 0xE7EE"),
+            Err(e) => assert_eq!(
+                format!("{}", e),
+                "Header CRC is incorrect, expected 0xE8EE but got 0xE7EE"
+            ),
         }
-
     }
 }

@@ -12,7 +12,7 @@ pub enum ScryError {
     ReadError { source: std::io::Error },
 
     #[error("Invalid UTF-8 string error")]
-    UTF8Invalid(#[from] FromUtf8Error ),
+    UTF8Invalid(#[from] FromUtf8Error),
 
     #[error("Header is not a GZIP header.")]
     NotGZIPHeader,
@@ -21,24 +21,28 @@ pub enum ScryError {
     InvalidCompressionMethod,
 
     #[error("Header CRC is incorrect, expected 0x{expected:X} but got 0x{found:X}")]
-    InvalidHeaderCRC {
-        expected: u16,
-        found: u16
-    },
+    InvalidHeaderCRC { expected: u16, found: u16 },
 
     #[error("Block type 0b11 not supported")]
-    InvalidBlockType, 
+    InvalidBlockType,
 
     #[error("Invalid length/distance code, got size {size} and lookback {lookback}")]
-    InvalidLengthDistancePair {
-        lookback: u16,
-        size: u16
-    },
+    InvalidLengthDistancePair { lookback: u16, size: u16 },
 
-    #[error("Tried to read too many bits at once")]
-    InvalidNumberOfBits {
-        num: u8
-    },
+    #[error("Tried to read too many bits at once, {num}")]
+    InvalidNumberOfBits { num: u8 },
+
+    #[error("Invalid Huffman code, {code}")]
+    InvalidHuffmanCode { code: u16 },
+
+    #[error("Invalid Dynamic Block due to attempting to copy a code length at 0")]
+    InvalidDynamicBlockCodeLength,
+
+    #[error("EOF")]
+    EOF,  // could be expected! maybe not.
+
+    #[error("Expected EOF")]
+    ExpectedEOF,
 
     /// Represents all other cases of `std::io::Error`.
     #[error(transparent)]

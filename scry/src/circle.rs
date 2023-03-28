@@ -8,10 +8,9 @@ use std::iter::zip;
 
 use crate::errors::ScryError;
 
-
 pub struct CircularBuffer {
     buffer: Vec<u8>,
-    head: usize
+    head: usize,
 }
 
 impl CircularBuffer {
@@ -20,7 +19,7 @@ impl CircularBuffer {
         let buffer: Vec<u8> = vec![0; size];
         Self {
             buffer,
-            head: rng.gen_range(0..size) // it shouldn't matter where the head starts.
+            head: rng.gen_range(0..size), // it shouldn't matter where the head starts.
         }
     }
 
@@ -45,7 +44,7 @@ impl CircularBuffer {
 
         for (k1, k2) in zip(a1..a3, a0..a2) {
             buffer2[k2] = self.buffer[k1];
-        };
+        }
 
         for (k1, k2) in zip(a0..a1, a2..a3) {
             buffer2[k2] = self.buffer[k1];
@@ -56,7 +55,7 @@ impl CircularBuffer {
 
     pub fn push_from_buffer(&mut self, lookback: u16, size: u16) -> Result<(), ScryError> {
         if lookback > 32768 {
-            return Err(ScryError::InvalidLengthDistancePair { lookback, size })
+            return Err(ScryError::InvalidLengthDistancePair { lookback, size });
         }
         let lookback = lookback as isize;
         let len = self.buffer.len() as isize;
@@ -67,7 +66,20 @@ impl CircularBuffer {
         }
         Ok(())
     }
-} 
+
+    pub fn head(&self, n: u16) -> Result<Vec<u8>, ScryError> {
+        let mut v: Vec<u8> = Vec::new();
+        for i in 0..n {
+            let n1 = (n - i) as isize;
+            let head = self.head as isize;
+            let len = self.buffer.len() as isize;
+            let index = (head - n1).rem_euclid(len);
+            v.push(self.buffer[index as usize])
+        }
+
+        Ok(v)
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -95,7 +107,6 @@ mod test {
         }
         let nb = cb.get_normalized_buffer();
         assert_eq!(vec![1, 2, 3, 4, 5, 6, 7, 8], nb);
-
     }
 
     #[rstest]
@@ -122,4 +133,13 @@ mod test {
         assert_eq!(cb.get_normalized_buffer(), expected);
     }
 
+    #[rstest]
+    pub fn test_head() {
+        let mut cb = CircularBuffer::new(8);
+        for i in 0..8 {
+            cb.push(i); // cb is [0, 1, 2, 3, 4, 5, 6, 7]
+        }
+        let v = cb.head(5).unwrap();
+        assert_eq!(v, vec![3, 4, 5, 6, 7]);
+    }
 }
