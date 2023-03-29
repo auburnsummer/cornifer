@@ -26,6 +26,18 @@ pub enum ScryError {
     #[error("Block type 0b11 not supported")]
     InvalidBlockType,
 
+    #[error("Invalid non-compressed block NLEN, expected 0x{expected:X} but got 0x{found:X}")]
+    InvalidNonCompressedBlockHeader {
+        expected: u16,
+        found: u16
+    },
+
+    #[error("GZIP member CRC is incorrect at 0x{position:X}, expected 0x{expected:X} but got 0x{found:X}")]
+    InvalidGZIPCRC { position: u32, expected: u32, found: u32 },
+
+    #[error("GZIP member ISIZE is incorrect at 0x{position:X}, expected 0x{expected:X} but got 0x{found:X}")]
+    InvalidGZIPIsize { position: u32, expected: u32, found: u32 },
+
     #[error("Invalid length/distance code, got size {size} and lookback {lookback}")]
     InvalidLengthDistancePair { lookback: u16, size: u16 },
 

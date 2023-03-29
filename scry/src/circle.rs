@@ -1,14 +1,17 @@
-/*
-Circular buffer.
- */
+use std::mem;
 
+use crc::{CRC_32_ISO_HDLC, Crc, Digest};
 use rand::Rng;
 
 use crate::errors::ScryError;
 
+static CRC32: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
+
 pub struct CircularBuffer {
     buffer: Vec<u8>,
     head: usize,
+    digest: Digest<'static, u32>,
+    counter: u32
 }
 
 impl CircularBuffer {
@@ -18,14 +21,25 @@ impl CircularBuffer {
         Self {
             buffer,
             head: rng.gen_range(0..size), // it shouldn't matter where the head starts.
+            digest: CRC32.digest(),
+            counter: 0
         }
     }
 
     pub fn push(&mut self, byte: u8) {
         self.buffer[self.head] = byte;
-        self.head = (self.head + 1) % self.buffer.len()
+        self.head = (self.head + 1) % self.buffer.len();
+        self.digest.update(&[byte]);
+        self.counter += 1;
     }
 
+    /// push bytes into the buffer that are in the buffer.
+    /// 
+    ///  * lookback - number of bytes back in the buffer to look. Max 32kb.
+    ///  * size - number of bytes _from_ lookback to start copying.
+    /// 
+    /// Note that size can be greater than lookback, because as a byte is copied into the
+    /// buffer, it can be read again as input.  
     pub fn push_from_buffer(&mut self, lookback: u16, size: u16) -> Result<(), ScryError> {
         if lookback > 32768 {
             return Err(ScryError::InvalidLengthDistancePair { lookback, size });
@@ -40,6 +54,9 @@ impl CircularBuffer {
         Ok(())
     }
 
+    /// Get the top n bytes of the buffer as a vector v.
+    /// The _last_ item in v is the most _recent_ byte pushed to the buffer.
+    /// The _first_ item in v is the nth most recent byte pushed to the buffer.
     pub fn head(&self, n: u16) -> Result<Vec<u8>, ScryError> {
         let mut v: Vec<u8> = Vec::new();
         for i in 0..n {
@@ -53,32 +70,22 @@ impl CircularBuffer {
         Ok(v)
     }
 
+    /// Returns the CRC32 of the data written so far, and resets the CRC32.
+    pub fn crc32(&mut self) -> u32 {
+        let d = mem::replace(&mut self.digest, CRC32.digest());
+        d.finalize()
+    }
+
+    /// Return the number of bytes written so far, and resets this count.
+    pub fn counter(&mut self) -> u32 {
+        let result = self.counter;
+        self.counter = 0;
+        result
+    }
+
     #[cfg(test)]
-    pub fn get_normalized_buffer(&self) -> Vec<u8> {
-        use std::iter::zip;
-
-        let mut buffer2 = vec![0; self.buffer.len()];
-        /*       a0------->a1---------------------a2--------------->a3
-        buffer1  |==================================================|
-        buffer2  |==================================================|
-        copy a1->a3 to a0->a2
-        copy a0->a1 to a2->a3
-         */
-
-        let a0 = 0_usize;
-        let a1 = self.head;
-        let a2 = self.buffer.len() - self.head;
-        let a3 = self.buffer.len();
-
-        for (k1, k2) in zip(a1..a3, a0..a2) {
-            buffer2[k2] = self.buffer[k1];
-        }
-
-        for (k1, k2) in zip(a0..a1, a2..a3) {
-            buffer2[k2] = self.buffer[k1];
-        }
-
-        buffer2
+    pub fn get_normalized_buffer(&self) -> Vec<u8> { 
+        self.head(self.buffer.len() as u16).unwrap()
     }
 }
 
