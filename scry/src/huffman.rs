@@ -17,24 +17,23 @@ pub struct HuffmanCode {
 
 impl HuffmanTree {
     pub fn new(bit_lengths: &[u8]) -> Self {
-        // https://www.rfc-editor.org/rfc/rfc195
         // Count the number of codes for each code length.  Let
         // bl_count[N] be the number of codes of length N, N >= 1.
         let mut bl_count = [0_u16; (MAX_HUFFMAN_BITS + 1) as usize];
-        let mut next_code = [0_u16; (MAX_HUFFMAN_BITS + 1) as usize];
-        for len in bit_lengths {
-            let len = *len as usize;
-            bl_count[len] += 1
+        for &len in bit_lengths {
+            let len = len as usize;
+            bl_count[len] += 1;
         }
+        bl_count[0] = 0;
+
         // 2)  Find the numerical value of the smallest code for each
         // code length:
+        let mut next_code = [0_u16; (MAX_HUFFMAN_BITS + 1) as usize];
+
         let mut code: u16 = 0;
         for bits in 1..=MAX_HUFFMAN_BITS {
             let bits = bits as usize;
-            if bl_count[bits] == 0 {
-                continue;
-            }
-            code = (code + bl_count[bits - 1]) << 1;
+            code = (code + bl_count[bits-1]) << 1;
             next_code[bits] = code;
         }
         // Assign numerical values to all codes.
@@ -157,6 +156,60 @@ mod test {
         assert_eq!(codes.get(&0b010), Some(&HuffmanCode { symbol: 1, len: 3 }));
         assert_eq!(codes.get(&0b1111), Some(&HuffmanCode { symbol: 10, len: 4 }));
         assert_eq!(codes.get(&0b00), Some(&HuffmanCode { symbol: 7, len: 2 }));
+
+    }
+
+    #[rstest]
+    pub fn test_lut_values_with_gaps_2() {
+        //
+        // Symbol  Len  Code
+        // 0       11  11111111100
+        // 1       12  111111111110
+        // 2       11  11111111101
+        // 3       12  111111111111
+        // 4       N/A 
+        // 5       11  11111111110
+        // 6       9   111111110
+        // 7       8   11111110
+        // 8       7   1111100
+        // 9       7   1111101
+        // 10      7   1111110
+        // 11      6   111010
+        // 12      6   111011
+        // 13      6   111100
+        // 14      5   11010
+        // 15      5   11011
+        // 16      4   0010
+        // 17      5   11100
+        // 18      4   0011
+        // 19      4   0100
+        // 20      4   0101
+        // 21      4   0110
+        // 22      3   000
+        // 23      4   0111
+        // 24      4   1000
+        // 25      4   1001
+        // 26      4   1010
+        // 27      4   1011
+        // 28      4   1100
+        // 29      6   111101
+        let test_values = [
+            11_u8, 12, 11, 12,
+            0, 11, 9, 8,
+            7, 7, 7, 6,
+            6, 6, 5, 5,
+            4, 5, 4, 4,
+            4, 4, 3, 4,
+            4, 4, 4, 4,
+            4, 6, 0, 0,
+            0, 0, 0, 0,
+            0, 0
+        ];
+        let tree = HuffmanTree::new(&test_values);
+
+        let codes = tree.get_lut();
+        assert_eq!(codes.get(&0b1011), Some(&HuffmanCode { symbol: 27, len: 4 }));
+        assert_eq!(codes.get(&0b11111111110), Some(&HuffmanCode { symbol: 5, len: 11 }));
 
     }
 

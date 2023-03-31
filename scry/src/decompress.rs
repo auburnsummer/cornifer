@@ -127,8 +127,8 @@ impl<R: Read> Deflator<R> {
             if let Some(symbol) = tree.decode(byte, len) {
                 break Ok(symbol);
             };
-            if (len as u16) == MAX_HUFFMAN_BITS {
-                break Err(ScryError::InvalidHuffmanCode { code: byte });
+            if (len as u16) > MAX_HUFFMAN_BITS {
+                break Err(ScryError::InvalidHuffmanCode { code: byte, position: reader.current_byte, bit: reader.current_bit });
             };
         }
     }
@@ -561,5 +561,19 @@ mod test {
         let dest = String::from_utf8(dest.to_vec()).unwrap();
 
         assert_eq!(dest, "hello worldhello world2".to_string());
+    }
+
+    #[rstest]
+    pub fn test_modest_proposal() {
+        let input = include_bytes!("../testfiles/1080-0.txt.gz");
+
+        let reader = ScryByteReader::new(input.as_slice());
+        let mut deflator = Deflator::new(reader);
+        let mut dest: Vec<u8> = vec![0; 0];
+
+        // deflator.read(&mut dest).unwrap();
+        deflator.read_to_end(&mut dest).unwrap();
+        // that's the test, it doesn't panic.
+
     }
 }

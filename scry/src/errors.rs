@@ -44,8 +44,8 @@ pub enum ScryError {
     #[error("Tried to read too many bits at once, {num}")]
     InvalidNumberOfBits { num: u8 },
 
-    #[error("Invalid Huffman code, {code}")]
-    InvalidHuffmanCode { code: u16 },
+    #[error("Invalid Huffman code, {code} at position 0x{position:X}:{bit}")]
+    InvalidHuffmanCode { code: u16, position: u32, bit: u8 },
 
     #[error("Invalid Dynamic Block due to attempting to copy a code length at 0")]
     InvalidDynamicBlockCodeLength,
