@@ -573,7 +573,8 @@ mod test {
 
         // deflator.read(&mut dest).unwrap();
         deflator.read_to_end(&mut dest).unwrap();
-        // that's the test, it doesn't panic.
+       
+        assert_eq!(dest, include_bytes!("../testfiles/1080-0.txt"));
 
     }
 }

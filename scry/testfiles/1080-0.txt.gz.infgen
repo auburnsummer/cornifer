@@ -399,10 +399,7 @@ literal 'y		! 1011011
 literal 'o		! 110101
 literal 'n		! 010101
 literal 'e		! 11110
-// SYMBOL is 258 at this point.
-match 4 7		! 0 01111111111 000  // HERE WHEN IT TRIES TO DECODE THE DISTANCEEEE
-// okay so the tree is wrong, 01111111111 reversed is 0b11111111110 (10 1s)
-// but in the tree we have 0b1111111110 (9 1s)
+match 4 7		! 0 01111111111 000 
 literal 'w		! 0011011
 literal 'h		! 1001011
 literal 'e		! 11110
