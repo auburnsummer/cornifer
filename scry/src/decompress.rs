@@ -178,7 +178,7 @@ impl<R: Read> Deflator<R> {
                 let len = self.reader.read_u16_le()?;
                 let nlen = self.reader.read_u16_le()?;
                 if nlen != !len { // nlen should be 1's compliment of len
-                    return Err(ScryError::InvalidNonCompressedBlockHeader { expected: !len, found: nlen })
+                    return Err(ScryError::InvalidNonCompressedBlockHeader { position: self.reader.current_byte, expected: !len, found: nlen })
                 }
                 DeflatorState::NonCompressedBlock { len }
             }
@@ -288,7 +288,6 @@ impl<R: Read> Deflator<R> {
                         continue;
                     }
                     if symbol == 256 {
-                        self.reader.discard_until_next_byte();
                         break DeflatorState::CheckIfFinalBlock;
                     }
                     // value between 257 and 285
@@ -358,6 +357,7 @@ impl<R: Read> Deflator<R> {
             // We always assume there is another gzip member, so go back to the header state. The header state
             // will handle EOF.
             DeflatorState::GZIPFooter => {
+                self.reader.discard_until_next_byte();
                 // read four bytes crc32 and check
                 let crc32_expected = self.buffer.crc32();
                 let crc32 = self.reader.read_u32_le()?;

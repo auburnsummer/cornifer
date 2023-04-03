@@ -26,8 +26,9 @@ pub enum ScryError {
     #[error("Block type 0b11 not supported")]
     InvalidBlockType,
 
-    #[error("Invalid non-compressed block NLEN, expected 0x{expected:X} but got 0x{found:X}")]
+    #[error("Invalid non-compressed block NLEN, position 0x{position:X} expected 0x{expected:X} but got 0x{found:X}")]
     InvalidNonCompressedBlockHeader {
+        position: u32,
         expected: u16,
         found: u16
     },

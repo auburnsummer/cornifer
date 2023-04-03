@@ -30,7 +30,7 @@ impl CircularBuffer {
         self.buffer[self.head] = byte;
         self.head = (self.head + 1) % self.buffer.len();
         self.digest.update(&[byte]);
-        self.counter += 1;
+        self.counter = self.counter.wrapping_add(1);
     }
 
     /// push bytes into the buffer that are in the buffer.
