@@ -1,12 +1,10 @@
-use std::{collections::HashMap, hash::BuildHasherDefault};
-
-use nohash_hasher::{IntMap, NoHashHasher};
-
 pub const MAX_HUFFMAN_BITS: u16 = 15;
+const LUT_SIZE: usize = 2_i32.pow(MAX_HUFFMAN_BITS as u32) as usize;
 
 #[derive(PartialEq, Default)]
 pub struct HuffmanTree {
-    lut: HashMap<u16, HuffmanCode, BuildHasherDefault<NoHashHasher<u16>>>,
+    // lut: HashMap<u16, HuffmanCode, BuildHasherDefault<NoHashHasher<u16>>>,
+    lut: Vec<Option<HuffmanCode>>
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -49,13 +47,13 @@ impl HuffmanTree {
             }
         }
         // put them in the lookup table.
-        let mut lut: IntMap<u16, HuffmanCode> = IntMap::default();
+        let mut lut = vec![None; LUT_SIZE];
         for i in 0..bit_lengths.len() {
             let len = bit_lengths[i];
-            let code = final_codes[i];
+            let code = final_codes[i] as usize;
             let i = i as u16;
             if len > 0 {
-                lut.insert(code, HuffmanCode { symbol: i, len });
+                lut[code] = Some(HuffmanCode { symbol: i, len });
             }
         }
 
@@ -77,7 +75,8 @@ impl HuffmanTree {
     }
 
     pub fn decode(&self, code: u16, len: u8) -> Option<u16> {
-        let lookup = self.lut.get(&code)?;
+        let code = code as usize;
+        let lookup = self.lut[code]?;
         if len == lookup.len {
             Some(lookup.symbol)
         } else {
@@ -86,7 +85,7 @@ impl HuffmanTree {
     }
 
     #[cfg(test)]
-    pub fn get_lut(&self) -> &HashMap<u16, HuffmanCode, BuildHasherDefault<NoHashHasher<u16>>> {
+    pub fn get_lut(&self) -> &Vec<Option<HuffmanCode>> {
         return &self.lut;
     }
 
@@ -99,7 +98,6 @@ impl HuffmanTree {
 #[cfg(test)]
 mod test {
     use rstest::*;
-
     use crate::huffman::HuffmanCode;
 
     use super::HuffmanTree;
@@ -123,10 +121,10 @@ mod test {
            6       4       1110
            7       4       1111
         */
-        assert_eq!(codes.get(&0b01), None);
-        assert_eq!(codes.get(&0b010), Some(&HuffmanCode { symbol: 0, len: 3 }));
-        assert_eq!(codes.get(&0b1111), Some(&HuffmanCode { symbol: 7, len: 4 }));
-        assert_eq!(codes.get(&0b00), Some(&HuffmanCode { symbol: 5, len: 2 }));
+        assert_eq!(codes[0b01], None);
+        assert_eq!(codes[0b010], Some(HuffmanCode { symbol: 0, len: 3 }));
+        assert_eq!(codes[0b1111], Some(HuffmanCode { symbol: 7, len: 4 }));
+        assert_eq!(codes[0b00], Some(HuffmanCode { symbol: 5, len: 2 }));
     }
 
     #[rstest]
@@ -152,10 +150,10 @@ mod test {
 
         let codes = tree.get_lut();
 
-        assert_eq!(codes.get(&0b01), None);
-        assert_eq!(codes.get(&0b010), Some(&HuffmanCode { symbol: 1, len: 3 }));
-        assert_eq!(codes.get(&0b1111), Some(&HuffmanCode { symbol: 10, len: 4 }));
-        assert_eq!(codes.get(&0b00), Some(&HuffmanCode { symbol: 7, len: 2 }));
+        assert_eq!(codes[0b01], None);
+        assert_eq!(codes[0b010], Some(HuffmanCode { symbol: 1, len: 3 }));
+        assert_eq!(codes[0b1111], Some(HuffmanCode { symbol: 10, len: 4 }));
+        assert_eq!(codes[0b00], Some(HuffmanCode { symbol: 7, len: 2 }));
 
     }
 
@@ -208,8 +206,8 @@ mod test {
         let tree = HuffmanTree::new(&test_values);
 
         let codes = tree.get_lut();
-        assert_eq!(codes.get(&0b1011), Some(&HuffmanCode { symbol: 27, len: 4 }));
-        assert_eq!(codes.get(&0b11111111110), Some(&HuffmanCode { symbol: 5, len: 11 }));
+        assert_eq!(codes[0b1011], Some(HuffmanCode { symbol: 27, len: 4 }));
+        assert_eq!(codes[0b11111111110], Some(HuffmanCode { symbol: 5, len: 11 }));
 
     }
 
@@ -230,31 +228,31 @@ mod test {
                                 11000111
          */
         assert_eq!(
-            codes.get(&0b110001),
-            Some(&HuffmanCode { symbol: 1, len: 8 })
+            codes[0b110001],
+            Some(HuffmanCode { symbol: 1, len: 8 })
         );
         assert_eq!(
-            codes.get(&0b11000111),
-            Some(&HuffmanCode {
+            codes[0b11000111],
+            Some(HuffmanCode {
                 symbol: 287,
                 len: 8
             })
         );
         assert_eq!(
-            codes.get(&0b111111110),
-            Some(&HuffmanCode {
+            codes[0b111111110],
+            Some(HuffmanCode {
                 symbol: 254,
                 len: 9
             })
         );
         assert_eq!(
-            codes.get(&0b0000000),
-            Some(&HuffmanCode {
+            codes[0b0000000],
+            Some(HuffmanCode {
                 symbol: 256,
                 len: 7
             })
         );
-        assert_eq!(codes.get(&0b1111111111), None);
+        assert_eq!(codes[0b1111111111], None);
     }
 
     #[rstest]
