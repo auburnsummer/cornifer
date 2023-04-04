@@ -34,14 +34,14 @@ pub enum OperatingSystem {
 pub fn read_header<R: Read>(sr: &mut ScryByteReader<R>) -> Result<GzipHeader, ScryError> {
     sr.begin_crc();
     // id1 and id2
-    // btw if the first byte fails, we handle that differently, it might be an 
+    // btw if the first byte fails, we handle that differently, it might be an
     // expected EOF
     let id1 = match sr.read_u8() {
         Ok(byte) => byte,
         Err(err) => match err {
             ScryError::EOF => return Err(ScryError::ExpectedEOF),
-            _ => return Err(err)
-        }
+            _ => return Err(err),
+        },
     };
     let id2 = sr.read_u8()?;
     if id1 != 0x1f || id2 != 0x8b {

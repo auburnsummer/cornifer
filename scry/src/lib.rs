@@ -1,3 +1,4 @@
+pub mod checkpoint;
 pub mod circle;
 pub mod decompress;
 pub mod errors;

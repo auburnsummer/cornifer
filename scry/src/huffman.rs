@@ -4,7 +4,7 @@ const LUT_SIZE: usize = 2_i32.pow(MAX_HUFFMAN_BITS as u32) as usize;
 #[derive(PartialEq, Default)]
 pub struct HuffmanTree {
     // lut: HashMap<u16, HuffmanCode, BuildHasherDefault<NoHashHasher<u16>>>,
-    lut: Vec<Option<HuffmanCode>>
+    lut: Vec<Option<HuffmanCode>>,
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -17,6 +17,7 @@ impl HuffmanTree {
     pub fn new(bit_lengths: &[u8]) -> Self {
         // Count the number of codes for each code length.  Let
         // bl_count[N] be the number of codes of length N, N >= 1.
+        // note: bl_count[0] must be 0.
         let mut bl_count = [0_u16; (MAX_HUFFMAN_BITS + 1) as usize];
         for &len in bit_lengths {
             let len = len as usize;
@@ -31,7 +32,7 @@ impl HuffmanTree {
         let mut code: u16 = 0;
         for bits in 1..=MAX_HUFFMAN_BITS {
             let bits = bits as usize;
-            code = (code + bl_count[bits-1]) << 1;
+            code = (code + bl_count[bits - 1]) << 1;
             next_code[bits] = code;
         }
         // Assign numerical values to all codes.
@@ -97,8 +98,8 @@ impl HuffmanTree {
  */
 #[cfg(test)]
 mod test {
-    use rstest::*;
     use crate::huffman::HuffmanCode;
+    use rstest::*;
 
     use super::HuffmanTree;
 
@@ -154,7 +155,6 @@ mod test {
         assert_eq!(codes[0b010], Some(HuffmanCode { symbol: 1, len: 3 }));
         assert_eq!(codes[0b1111], Some(HuffmanCode { symbol: 10, len: 4 }));
         assert_eq!(codes[0b00], Some(HuffmanCode { symbol: 7, len: 2 }));
-
     }
 
     #[rstest]
@@ -165,7 +165,7 @@ mod test {
         // 1       12  111111111110
         // 2       11  11111111101
         // 3       12  111111111111
-        // 4       N/A 
+        // 4       N/A
         // 5       11  11111111110
         // 6       9   111111110
         // 7       8   11111110
@@ -192,23 +192,17 @@ mod test {
         // 28      4   1100
         // 29      6   111101
         let test_values = [
-            11_u8, 12, 11, 12,
-            0, 11, 9, 8,
-            7, 7, 7, 6,
-            6, 6, 5, 5,
-            4, 5, 4, 4,
-            4, 4, 3, 4,
-            4, 4, 4, 4,
-            4, 6, 0, 0,
-            0, 0, 0, 0,
-            0, 0
+            11_u8, 12, 11, 12, 0, 11, 9, 8, 7, 7, 7, 6, 6, 6, 5, 5, 4, 5, 4, 4, 4, 4, 3, 4, 4, 4,
+            4, 4, 4, 6, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         let tree = HuffmanTree::new(&test_values);
 
         let codes = tree.get_lut();
         assert_eq!(codes[0b1011], Some(HuffmanCode { symbol: 27, len: 4 }));
-        assert_eq!(codes[0b11111111110], Some(HuffmanCode { symbol: 5, len: 11 }));
-
+        assert_eq!(
+            codes[0b11111111110],
+            Some(HuffmanCode { symbol: 5, len: 11 })
+        );
     }
 
     #[rstest]
@@ -227,10 +221,7 @@ mod test {
         280 - 287     8          11000000 through
                                 11000111
          */
-        assert_eq!(
-            codes[0b110001],
-            Some(HuffmanCode { symbol: 1, len: 8 })
-        );
+        assert_eq!(codes[0b110001], Some(HuffmanCode { symbol: 1, len: 8 }));
         assert_eq!(
             codes[0b11000111],
             Some(HuffmanCode {

@@ -23,7 +23,7 @@ static DIST_EXTRA_BITS: [u8; 30] = [
 ];
 
 static CODE_LENGTH_ORDER: [usize; 19] = [
-    16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15
+    16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
 ];
 
 const MAX_SYMBOL_CODES: usize = 286;
@@ -33,20 +33,21 @@ use std::cmp::min;
 use std::io::{Error, ErrorKind, Read};
 use std::mem::{self, discriminant};
 
+use crate::checkpoint::Checkpointer;
 use crate::header::read_header;
 use crate::huffman::MAX_HUFFMAN_BITS;
 use crate::{
     circle::CircularBuffer, errors::ScryError, huffman::HuffmanTree, reader::ScryByteReader,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum BlockType {
     NoCompression,
     FixedHuffman,
     DynamicHuffman,
 }
 
-#[derive(PartialEq)] 
+#[derive(PartialEq)]
 pub enum DeflatorState {
     // read a GZIP member header.
     GZIPHeader,
@@ -55,20 +56,22 @@ pub enum DeflatorState {
     // read header of non-compressed block (BTYPE=00), which tells us how many bytes to read.
     PrepareNonCompressedBlock,
     // copy bytes directly from input to output.
-    NonCompressedBlock { len: u16 },
+    NonCompressedBlock {
+        len: u16,
+    },
     // if BTYPE=10, decode huffman trees encoded in the stream.
     PrepareDynamicBlock,
     // if BTYPE=01, or BTYPE=10, decode the input stream.
     DecodeBlock {
         symbol_tree: HuffmanTree,
-        distance_tree: HuffmanTree
+        distance_tree: HuffmanTree,
     },
     // copy bytes from the buffer to the output.
     WriteLookback {
         current: u16,
         len: u16,
         symbol_tree: HuffmanTree,
-        distance_tree: HuffmanTree
+        distance_tree: HuffmanTree,
     },
     // state that checks if we're in the final block.
     CheckIfFinalBlock,
@@ -89,15 +92,17 @@ pub struct Deflator<R> {
     state: DeflatorState,
     in_final_block: bool,
     reader: ScryByteReader<R>,
+    checkpointer: Checkpointer,
 }
 
 impl<R: Read> Deflator<R> {
-    pub fn new(reader: ScryByteReader<R>) -> Self {
+    pub fn new(reader: ScryByteReader<R>, checkpointer: Checkpointer) -> Self {
         Self {
             buffer: CircularBuffer::new(THIRTY_TWO_KILOBYTES),
             state: DeflatorState::GZIPHeader,
             in_final_block: false,
             reader,
+            checkpointer,
         }
     }
 
@@ -128,46 +133,63 @@ impl<R: Read> Deflator<R> {
                 break Ok(symbol);
             };
             if (len as u16) > MAX_HUFFMAN_BITS {
-                break Err(ScryError::InvalidHuffmanCode { code: byte, position: reader.current_byte, bit: reader.current_bit });
+                break Err(ScryError::InvalidHuffmanCode {
+                    code: byte,
+                    position: reader.current_byte,
+                    bit: reader.current_bit,
+                });
             };
         }
+    }
+
+    pub fn checkpoint(&self) -> Result<(), ScryError> {
+        self.checkpointer.emit_block_checkpoint(self.reader.current_byte, self.reader.current_bit, self.buffer.get_normalized_buffer()?)?;
+
+        Ok(())
     }
 
     /// Run through one state of the decompressor, returning the number of bytes written.
     /// Notes:
     ///  - the number of bytes written can and will be 0 (e.g. reading a GZIP header does not output any bytes.)
     ///  - depending on factors such as the input buffer length, a state may not complete in a call. in this case,
-    ///    the state does not change and this function needs to be called again.
+    ///    we remain in the same state (albeit with different parameters), and the function will need to be called again.
     fn state_transition(&mut self, buf: &mut [u8]) -> Result<usize, ScryError> {
         let mut bytes_written = 0;
         self.state = match &mut self.state {
             // Read the header. We could have also been sent back here after the end of a previous gzip member.
             // if that gzip member was the last member, then we could expect an EOF to occur immediately. that means we're done.
             // otherwise, a GZIP header is always proceeded with a deflate block.
-            DeflatorState::GZIPHeader => {
-                match read_header(&mut self.reader) {
-                    Ok(_header) => DeflatorState::BlockHeader,
-                    Err(err) => match err {
-                        ScryError::ExpectedEOF => DeflatorState::Done,
-                        _ => return Err(err)
-                    }
-                }
+            DeflatorState::GZIPHeader => match read_header(&mut self.reader) {
+                Ok(_header) => DeflatorState::BlockHeader,
+                Err(err) => match err {
+                    ScryError::ExpectedEOF => DeflatorState::Done,
+                    _ => return Err(err),
+                },
             },
             // Read a DEFLATE block. There are non-compressed, fixed, and dynamic blocks.
             // non-compressed and dynamic blocks have additional headers we need to work through, but a fixed block
             // we can proceed to decoding straight away.
             DeflatorState::BlockHeader => {
+                self.checkpointer.set_position(
+                    self.reader.current_byte,
+                    self.reader.current_bit,
+                    self.buffer.get_bytes_written(),
+                );
                 let block_header = self.read_block_header()?;
                 self.in_final_block = block_header.is_final; // read in CheckIfFinalBlock later.
+                self.checkpointer.set_block_type(block_header.block_type);
                 match block_header.block_type {
                     BlockType::NoCompression => DeflatorState::PrepareNonCompressedBlock,
                     BlockType::DynamicHuffman => DeflatorState::PrepareDynamicBlock,
                     BlockType::FixedHuffman => {
+                        // there are no more bits before decoding starts.
+                        // so we can emit a checkpoint right away.
+                        self.checkpoint()?;
                         let symbol_tree = HuffmanTree::fixed();
                         let distance_tree = HuffmanTree::fixed_dist();
                         DeflatorState::DecodeBlock {
                             symbol_tree,
-                            distance_tree
+                            distance_tree,
                         }
                     }
                 }
@@ -177,9 +199,15 @@ impl<R: Read> Deflator<R> {
                 self.reader.discard_until_next_byte();
                 let len = self.reader.read_u16_le()?;
                 let nlen = self.reader.read_u16_le()?;
-                if nlen != !len { // nlen should be 1's compliment of len
-                    return Err(ScryError::InvalidNonCompressedBlockHeader { position: self.reader.current_byte, expected: !len, found: nlen })
+                if nlen != !len {
+                    // nlen should be 1's compliment of len
+                    return Err(ScryError::InvalidNonCompressedBlockHeader {
+                        position: self.reader.current_byte,
+                        expected: !len,
+                        found: nlen,
+                    });
                 }
+                self.checkpoint()?;
                 DeflatorState::NonCompressedBlock { len }
             }
             // Once we know how many bytes to copy, start copying them.
@@ -206,23 +234,24 @@ impl<R: Read> Deflator<R> {
             // Dynamic blocks have additional metadata encoding the Huffman trees used.
             // The process is described in RFC1951 3.2.7
             DeflatorState::PrepareDynamicBlock => {
-                let num_literals = self.reader.read_n_bits_le(5)? + 257;  // # of literal/length codes
-                let num_dists = self.reader.read_n_bits_le(5)? + 1;  // # of distance codes
+                let num_literals = self.reader.read_n_bits_le(5)? + 257; // # of literal/length codes
+                let num_dists = self.reader.read_n_bits_le(5)? + 1; // # of distance codes
                 let num_code_lengths = self.reader.read_n_bits_le(4)? + 4; // # of code length codes
 
                 // first make the code length tree.
                 let mut code_lengths = [0; 19];
                 for i in 0..num_code_lengths {
-                    code_lengths[CODE_LENGTH_ORDER[i as usize]] = self.reader.read_n_bits_le(3)? as u8;
+                    code_lengths[CODE_LENGTH_ORDER[i as usize]] =
+                        self.reader.read_n_bits_le(3)? as u8;
                 }
                 let cl_tree = HuffmanTree::new(&code_lengths);
 
                 // use this tree to construct the other two trees.
                 // the code lengths for the symbol and distance trees are in the same array.
-                let mut combined_cls = [0; MAX_DISTANCE_CODES+MAX_SYMBOL_CODES];
+                let mut combined_cls = [0; MAX_DISTANCE_CODES + MAX_SYMBOL_CODES];
 
                 let mut index = 0;
-                while index < (num_literals+num_dists) as usize {
+                while index < (num_literals + num_dists) as usize {
                     // let last_len = 0;
                     let symbol = Self::decode(&mut self.reader, &cl_tree)? as u8;
 
@@ -237,7 +266,7 @@ impl<R: Read> Deflator<R> {
                         if symbol == 16 {
                             // Copy the previous code length 3 - 6 times.
                             if index == 0 {
-                                return Err(ScryError::InvalidDynamicBlockCodeLength)
+                                return Err(ScryError::InvalidDynamicBlockCodeLength);
                             }
                             to_copy = combined_cls[index - 1];
                             times_to_copy = 3 + self.reader.read_n_bits_le(2)?;
@@ -261,13 +290,21 @@ impl<R: Read> Deflator<R> {
                 }
                 let num_literals = num_literals as usize;
                 let symbol_tree = HuffmanTree::new(&combined_cls[0..num_literals]);
-                let distance_tree = HuffmanTree::new(&combined_cls[num_literals..combined_cls.len()]);
-
-                DeflatorState::DecodeBlock { symbol_tree, distance_tree }
-            },
+                let distance_tree =
+                    HuffmanTree::new(&combined_cls[num_literals..combined_cls.len()]);
+                
+                self.checkpoint()?;
+                DeflatorState::DecodeBlock {
+                    symbol_tree,
+                    distance_tree,
+                }
+            }
             // Start decoding a DEFLATE block. The trees used are either well-known values (fixed), or decoded from
             // a dynamic block. Either way, this state doesn't care how the trees were made.
-            DeflatorState::DecodeBlock{symbol_tree, distance_tree} => {
+            DeflatorState::DecodeBlock {
+                symbol_tree,
+                distance_tree,
+            } => {
                 let mut i = 0;
                 let next_state = loop {
                     if i >= buf.len() {
@@ -275,8 +312,8 @@ impl<R: Read> Deflator<R> {
                         // next time state_transition is called we'll pick up where we left off.
                         break DeflatorState::DecodeBlock {
                             symbol_tree: mem::take(symbol_tree),
-                            distance_tree: mem::take(distance_tree)
-                        }
+                            distance_tree: mem::take(distance_tree),
+                        };
                     }
                     let symbol = Self::decode(&mut self.reader, symbol_tree)?;
                     if symbol < 256 {
@@ -306,18 +343,23 @@ impl<R: Read> Deflator<R> {
                         current: 0,
                         len,
                         symbol_tree: mem::take(symbol_tree),
-                        distance_tree: mem::take(distance_tree)
-                    }
+                        distance_tree: mem::take(distance_tree),
+                    };
                 };
                 bytes_written = i;
                 next_state
-            },
+            }
             // A helper state for DecodeBlock, DecodeBlock will transition to this if it encounters a lookback/distance pair
             // while decoding. This is because the input buffer might not be big enough to process an entire lookback/distance
             // pair, so we may need to loop this state multiple times.
             // This state doesn't use symbol_tree and distance_tree, but we need to hold them for when we transition back to
             // DecodeBlock state.
-            DeflatorState::WriteLookback { current, len, symbol_tree, distance_tree } => {
+            DeflatorState::WriteLookback {
+                current,
+                len,
+                symbol_tree,
+                distance_tree,
+            } => {
                 let buf_len = buf.len();
                 let len = *len;
                 let current = *current;
@@ -325,7 +367,7 @@ impl<R: Read> Deflator<R> {
 
                 let head = self.buffer.head(len)?;
 
-                for i in current..current+num_bytes {
+                for i in current..current + num_bytes {
                     buf[bytes_written] = head[i as usize];
                     bytes_written += 1;
                 }
@@ -333,17 +375,17 @@ impl<R: Read> Deflator<R> {
                 if current + num_bytes == len {
                     DeflatorState::DecodeBlock {
                         symbol_tree: mem::take(symbol_tree),
-                        distance_tree: mem::take(distance_tree)
+                        distance_tree: mem::take(distance_tree),
                     }
                 } else {
                     DeflatorState::WriteLookback {
                         current: current + (bytes_written as u16),
                         len,
                         symbol_tree: mem::take(symbol_tree),
-                        distance_tree: mem::take(distance_tree)
+                        distance_tree: mem::take(distance_tree),
                     }
                 }
-            },
+            }
             // This state is visited after a block is decoded. There is either another block (if it's not the final block),
             // or a GZIP footer.
             DeflatorState::CheckIfFinalBlock => {
@@ -352,7 +394,7 @@ impl<R: Read> Deflator<R> {
                 } else {
                     DeflatorState::BlockHeader
                 }
-            },
+            }
             // The GZIP footer consists of a CRC32 checksum and the number of bytes of the decompressed output.
             // We always assume there is another gzip member, so go back to the header state. The header state
             // will handle EOF.
@@ -362,16 +404,24 @@ impl<R: Read> Deflator<R> {
                 let crc32_expected = self.buffer.crc32();
                 let crc32 = self.reader.read_u32_le()?;
                 if crc32_expected != crc32 {
-                    return Err(ScryError::InvalidGZIPCRC { position: self.reader.current_byte, expected: crc32_expected, found: crc32 })
+                    return Err(ScryError::InvalidGZIPCRC {
+                        position: self.reader.current_byte,
+                        expected: crc32_expected,
+                        found: crc32,
+                    });
                 }
                 // read four bytes isize and check
                 let isize_expected = self.buffer.counter();
                 let isize = self.reader.read_u32_le()?;
                 if isize_expected != isize {
-                    return Err(ScryError::InvalidGZIPIsize { position: self.reader.current_byte, expected: isize_expected, found: isize })
+                    return Err(ScryError::InvalidGZIPIsize {
+                        position: self.reader.current_byte,
+                        expected: isize_expected,
+                        found: isize,
+                    });
                 }
                 DeflatorState::GZIPHeader
-            },
+            }
             // once we're done, we're done forever.
             DeflatorState::Done => DeflatorState::Done,
         };
@@ -381,6 +431,8 @@ impl<R: Read> Deflator<R> {
     // Implementation of Read trait that uses ScryError instead of std::io::Error
     fn read_internal(&mut self, buf: &mut [u8]) -> Result<usize, ScryError> {
         let mut bytes_written = 0;
+        // keep going until we've written at least one byte, or we're done.
+        // self.state_transition may return 0 even if we're not done. The only way to tell if we're done is if we're in DeflatorState::Done
         while bytes_written == 0 {
             bytes_written += self.state_transition(buf)?;
             if discriminant(&self.state) == discriminant(&DeflatorState::Done) {
@@ -407,10 +459,14 @@ mod test {
         mem::discriminant,
     };
 
-    use flate2::{write::{DeflateEncoder, GzEncoder}, Compression};
+    use flate2::{
+        write::{DeflateEncoder, GzEncoder},
+        Compression,
+    };
     use rstest::rstest;
 
     use crate::{
+        checkpoint::Checkpointer,
         decompress::{BlockType, Deflator},
         reader::ScryByteReader,
     };
@@ -423,7 +479,7 @@ mod test {
         let v = e.finish().unwrap();
         let v = v.as_slice();
         let reader = ScryByteReader::new(v);
-        let mut deflator = Deflator::new(reader);
+        let mut deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
         let block_header = deflator.read_block_header().unwrap();
 
         assert_eq!(block_header.block_type, BlockType::FixedHuffman);
@@ -438,7 +494,7 @@ mod test {
         let v = e.finish().unwrap();
         let v = v.as_slice();
         let reader = ScryByteReader::new(v);
-        let mut deflator = Deflator::new(reader);
+        let mut deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
 
         let mut dest: Vec<u8> = Vec::new();
 
@@ -458,7 +514,7 @@ mod test {
         let v = e.finish().unwrap();
         let v = v.as_slice();
         let reader = ScryByteReader::new(v);
-        let mut deflator = Deflator::new(reader);
+        let mut deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
 
         let mut dest: Vec<u8> = Vec::new();
 
@@ -479,7 +535,7 @@ mod test {
         let v = e.finish().unwrap();
         let v = v.as_slice();
         let reader = ScryByteReader::new(v);
-        let deflator = Deflator::new(reader);
+        let deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
 
         let mut deflator = deflator.bytes();
 
@@ -507,7 +563,7 @@ mod test {
         let v = e.finish().unwrap();
         let v = v.as_slice();
         let reader = ScryByteReader::new(v);
-        let mut deflator = Deflator::new(reader);
+        let mut deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
         let mut dest: Vec<u8> = Vec::new();
 
         // deflator.read(&mut dest).unwrap();
@@ -523,18 +579,22 @@ mod test {
         // try something which repeats a bit more.
         let v: Vec<u8> = Vec::new();
         let mut e = GzEncoder::new(v, Compression::fast());
-        e.write_all(b"AYAYA waenfiopnwaeiofon vnvnvnvnvnvna lklklkklkl ffffff AYAYAYA FFFFFFF").unwrap();
+        e.write_all(b"AYAYA waenfiopnwaeiofon vnvnvnvnvnvna lklklkklkl ffffff AYAYAYA FFFFFFF")
+            .unwrap();
         let v = e.finish().unwrap();
         let v = v.as_slice();
         let reader = ScryByteReader::new(v);
-        let mut deflator = Deflator::new(reader);
+        let mut deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
         let mut dest: Vec<u8> = vec![0; 0];
 
         // deflator.read(&mut dest).unwrap();
         deflator.read_to_end(&mut dest).unwrap();
         let dest = String::from_utf8(dest.to_vec()).unwrap();
 
-        assert_eq!(dest, "AYAYA waenfiopnwaeiofon vnvnvnvnvnvna lklklkklkl ffffff AYAYAYA FFFFFFF".to_string());
+        assert_eq!(
+            dest,
+            "AYAYA waenfiopnwaeiofon vnvnvnvnvnvna lklklkklkl ffffff AYAYAYA FFFFFFF".to_string()
+        );
     }
 
     #[rstest]
@@ -553,7 +613,7 @@ mod test {
         let v = v.as_slice();
 
         let reader = ScryByteReader::new(v);
-        let mut deflator = Deflator::new(reader);
+        let mut deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
         let mut dest: Vec<u8> = vec![0; 0];
 
         // deflator.read(&mut dest).unwrap();
@@ -568,13 +628,12 @@ mod test {
         let input = include_bytes!("../testfiles/1080-0.txt.gz");
 
         let reader = ScryByteReader::new(input.as_slice());
-        let mut deflator = Deflator::new(reader);
+        let mut deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
         let mut dest: Vec<u8> = vec![0; 0];
 
         // deflator.read(&mut dest).unwrap();
         deflator.read_to_end(&mut dest).unwrap();
-       
-        assert_eq!(dest, include_bytes!("../testfiles/1080-0.txt"));
 
+        assert_eq!(dest, include_bytes!("../testfiles/1080-0.txt"));
     }
 }

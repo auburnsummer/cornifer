@@ -28,16 +28,24 @@ pub enum ScryError {
 
     #[error("Invalid non-compressed block NLEN, position 0x{position:X} expected 0x{expected:X} but got 0x{found:X}")]
     InvalidNonCompressedBlockHeader {
-        position: u32,
+        position: usize,
         expected: u16,
-        found: u16
+        found: u16,
     },
 
     #[error("GZIP member CRC is incorrect at 0x{position:X}, expected 0x{expected:X} but got 0x{found:X}")]
-    InvalidGZIPCRC { position: u32, expected: u32, found: u32 },
+    InvalidGZIPCRC {
+        position: usize,
+        expected: u32,
+        found: u32,
+    },
 
     #[error("GZIP member ISIZE is incorrect at 0x{position:X}, expected 0x{expected:X} but got 0x{found:X}")]
-    InvalidGZIPIsize { position: u32, expected: u32, found: u32 },
+    InvalidGZIPIsize {
+        position: usize,
+        expected: u32,
+        found: u32,
+    },
 
     #[error("Invalid length/distance code, got size {size} and lookback {lookback}")]
     InvalidLengthDistancePair { lookback: u16, size: u16 },
@@ -46,13 +54,13 @@ pub enum ScryError {
     InvalidNumberOfBits { num: u8 },
 
     #[error("Invalid Huffman code, {code} at position 0x{position:X}:{bit}")]
-    InvalidHuffmanCode { code: u16, position: u32, bit: u8 },
+    InvalidHuffmanCode { code: u16, position: usize, bit: u8 },
 
     #[error("Invalid Dynamic Block due to attempting to copy a code length at 0")]
     InvalidDynamicBlockCodeLength,
 
     #[error("EOF")]
-    EOF,  // could be expected! maybe not.
+    EOF, // could be expected! maybe not.
 
     #[error("Expected EOF")]
     ExpectedEOF,
@@ -60,4 +68,8 @@ pub enum ScryError {
     /// Represents all other cases of `std::io::Error`.
     #[error(transparent)]
     IOError(#[from] std::io::Error),
+
+    /// Represents any case of rusqlite::Error
+    #[error(transparent)]
+    RusqliteError(#[from] rusqlite::Error),
 }

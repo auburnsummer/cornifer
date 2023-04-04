@@ -6,17 +6,9 @@ use crate::errors::ScryError;
 
 static CRC32: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
 
-fn to_u32(i: usize) -> Option<u32> {
-    if i > u32::MAX as usize {
-        None
-    } else {
-        Some(i as u32)
-    }
-}
-
 pub struct ScryByteReader<R> {
     // where we are in the file.
-    pub current_byte: u32,
+    pub current_byte: usize,
     pub current_bit: u8,
     // the current byte, for use when reading individual bits.
     buffer: u8,
@@ -39,16 +31,13 @@ impl<R: Read> ScryByteReader<R> {
     }
 
     fn read_exact_internal(&mut self, buf: &mut [u8]) -> Result<(), ScryError> {
-        let l = match to_u32(buf.len()) {
-            Some(i) => i,
-            None => return Err(ScryError::BufferSizeTooLarge),
-        };
+        let l = buf.len();
         match self.inner.read_exact(buf) {
             Ok(_) => (),
             Err(e) => match e.kind() {
                 std::io::ErrorKind::UnexpectedEof => return Err(ScryError::EOF),
-                _ => return Err(ScryError::from(e))
-            }
+                _ => return Err(ScryError::from(e)),
+            },
         }
         if let Some(digest) = &mut self.digest {
             digest.update(buf);

@@ -1,6 +1,6 @@
 use std::mem;
 
-use crc::{CRC_32_ISO_HDLC, Crc, Digest};
+use crc::{Crc, Digest, CRC_32_ISO_HDLC};
 use rand::Rng;
 
 use crate::errors::ScryError;
@@ -11,7 +11,8 @@ pub struct CircularBuffer {
     buffer: Vec<u8>,
     head: usize,
     digest: Digest<'static, u32>,
-    counter: u32
+    counter: u32,         // wraps
+    bytes_written: usize, // doesn't wrap.
 }
 
 impl CircularBuffer {
@@ -22,7 +23,8 @@ impl CircularBuffer {
             buffer,
             head: rng.gen_range(0..size), // it shouldn't matter where the head starts.
             digest: CRC32.digest(),
-            counter: 0
+            counter: 0,
+            bytes_written: 0,
         }
     }
 
@@ -31,13 +33,18 @@ impl CircularBuffer {
         self.head = (self.head + 1) % self.buffer.len();
         self.digest.update(&[byte]);
         self.counter = self.counter.wrapping_add(1);
+        self.bytes_written += 1;
+    }
+
+    pub fn get_bytes_written(&self) -> usize {
+        self.bytes_written
     }
 
     /// push bytes into the buffer that are in the buffer.
-    /// 
+    ///
     ///  * lookback - number of bytes back in the buffer to look. Max 32kb.
     ///  * size - number of bytes _from_ lookback to start copying.
-    /// 
+    ///
     /// Note that size can be greater than lookback, because as a byte is copied into the
     /// buffer, it can be read again as input.  
     pub fn push_from_buffer(&mut self, lookback: u16, size: u16) -> Result<(), ScryError> {
@@ -83,9 +90,8 @@ impl CircularBuffer {
         result
     }
 
-    #[cfg(test)]
-    pub fn get_normalized_buffer(&self) -> Vec<u8> { 
-        self.head(self.buffer.len() as u16).unwrap()
+    pub fn get_normalized_buffer(&self) -> Result<Vec<u8>, ScryError> {
+        self.head(self.buffer.len() as u16)
     }
 }
 
@@ -102,7 +108,7 @@ mod test {
             for i in 0..8 {
                 cb.push(i);
             }
-            let nb = cb.get_normalized_buffer();
+            let nb = cb.get_normalized_buffer().unwrap();
             assert_eq!(vec![0, 1, 2, 3, 4, 5, 6, 7], nb);
         }
     }
@@ -113,7 +119,7 @@ mod test {
         for i in 0..9 {
             cb.push(i);
         }
-        let nb = cb.get_normalized_buffer();
+        let nb = cb.get_normalized_buffer().unwrap();
         assert_eq!(vec![1, 2, 3, 4, 5, 6, 7, 8], nb);
     }
 
@@ -129,7 +135,7 @@ mod test {
         // which is [3, 4, 5]
         // so it should look like
         let expected: Vec<u8> = vec![3, 4, 5, 6, 7, 3, 4, 5];
-        assert_eq!(cb.get_normalized_buffer(), expected);
+        assert_eq!(cb.get_normalized_buffer().unwrap(), expected);
     }
 
     #[rstest]
@@ -138,7 +144,7 @@ mod test {
         cb.push(3);
         cb.push_from_buffer(1, 799).unwrap();
         let expected: Vec<u8> = vec![3; 800];
-        assert_eq!(cb.get_normalized_buffer(), expected);
+        assert_eq!(cb.get_normalized_buffer().unwrap(), expected);
     }
 
     #[rstest]
