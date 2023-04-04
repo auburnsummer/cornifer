@@ -15,7 +15,7 @@ struct Cli {
     /// File to generate checkpoints for
     file_name: String,
 
-    /// File to write the checkpoints to.
+    /// File to write the checkpoints to. Should not already exist.
     #[arg(short, long)]
     output_checkpoint: String
 }
