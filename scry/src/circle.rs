@@ -10,7 +10,8 @@ static CRC32: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
 pub struct CircularBuffer {
     buffer: Vec<u8>,
     head: usize,
-    digest: Digest<'static, u32>,
+    gzip_digest: Digest<'static, u32>,  // this one is used to calculate the CRC of entire GZIP members.
+    block_digest: Digest<'static, u32>, // calculate the CRC of individual blocks.
     counter: u32,         // wraps
     bytes_written: usize, // doesn't wrap.
 }
@@ -22,7 +23,8 @@ impl CircularBuffer {
         Self {
             buffer,
             head: rng.gen_range(0..size), // it shouldn't matter where the head starts.
-            digest: CRC32.digest(),
+            gzip_digest: CRC32.digest(),
+            block_digest: CRC32.digest(),
             counter: 0,
             bytes_written: 0,
         }
@@ -31,7 +33,8 @@ impl CircularBuffer {
     pub fn push(&mut self, byte: u8) {
         self.buffer[self.head] = byte;
         self.head = (self.head + 1) % self.buffer.len();
-        self.digest.update(&[byte]);
+        self.gzip_digest.update(&[byte]);
+        self.block_digest.update(&[byte]);
         self.counter = self.counter.wrapping_add(1);
         self.bytes_written += 1;
     }
@@ -79,7 +82,12 @@ impl CircularBuffer {
 
     /// Returns the CRC32 of the data written so far, and resets the CRC32.
     pub fn crc32(&mut self) -> u32 {
-        let d = mem::replace(&mut self.digest, CRC32.digest());
+        let d = mem::replace(&mut self.gzip_digest, CRC32.digest());
+        d.finalize()
+    }
+
+    pub fn block_crc32(&mut self) -> u32 {
+        let d = mem::replace(&mut self.block_digest, CRC32.digest());
         d.finalize()
     }
 

@@ -20,3 +20,5 @@ testfiles2/
 scry/flamegraph.svg
 scry/perf.data
 scry/perf.data.old
+*.infgen
+*.sqlite3

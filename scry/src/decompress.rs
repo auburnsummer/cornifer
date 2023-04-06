@@ -64,7 +64,7 @@ pub enum DeflatorState {
     // if BTYPE=01, or BTYPE=10, decode the input stream.
     DecodeBlock {
         symbol_tree: HuffmanTree,
-        distance_tree: HuffmanTree,
+        distance_tree: HuffmanTree
     },
     // copy bytes from the buffer to the output.
     WriteLookback {
@@ -142,8 +142,8 @@ impl<R: Read> Deflator<R> {
         }
     }
 
-    pub fn checkpoint(&self) -> Result<(), ScryError> {
-        self.checkpointer.emit_block_checkpoint(self.reader.current_byte, self.reader.current_bit, self.buffer.get_normalized_buffer()?)?;
+    pub fn on_block_data_start(&mut self) -> Result<(), ScryError> {
+        self.checkpointer.on_block_data_start(self.reader.current_byte, self.reader.current_bit, self.buffer.get_normalized_buffer()?)?;
 
         Ok(())
     }
@@ -170,7 +170,7 @@ impl<R: Read> Deflator<R> {
             // non-compressed and dynamic blocks have additional headers we need to work through, but a fixed block
             // we can proceed to decoding straight away.
             DeflatorState::BlockHeader => {
-                self.checkpointer.set_position(
+                self.checkpointer.on_block_start(
                     self.reader.current_byte,
                     self.reader.current_bit,
                     self.buffer.get_bytes_written(),
@@ -184,7 +184,7 @@ impl<R: Read> Deflator<R> {
                     BlockType::FixedHuffman => {
                         // there are no more bits before decoding starts.
                         // so we can emit a checkpoint right away.
-                        self.checkpoint()?;
+                        self.on_block_data_start()?;
                         let symbol_tree = HuffmanTree::fixed();
                         let distance_tree = HuffmanTree::fixed_dist();
                         DeflatorState::DecodeBlock {
@@ -207,7 +207,7 @@ impl<R: Read> Deflator<R> {
                         found: nlen,
                     });
                 }
-                self.checkpoint()?;
+                self.on_block_data_start()?;
                 DeflatorState::NonCompressedBlock { len }
             }
             // Once we know how many bytes to copy, start copying them.
@@ -293,7 +293,7 @@ impl<R: Read> Deflator<R> {
                 let distance_tree =
                     HuffmanTree::new(&combined_cls[num_literals..combined_cls.len()]);
                 
-                self.checkpoint()?;
+                self.on_block_data_start()?;
                 DeflatorState::DecodeBlock {
                     symbol_tree,
                     distance_tree,
@@ -325,6 +325,7 @@ impl<R: Read> Deflator<R> {
                         continue;
                     }
                     if symbol == 256 {
+                        self.checkpointer.on_block_end(self.reader.current_byte, self.reader.current_bit, self.buffer.get_bytes_written(), self.buffer.block_crc32())?;
                         break DeflatorState::CheckIfFinalBlock;
                     }
                     // value between 257 and 285
