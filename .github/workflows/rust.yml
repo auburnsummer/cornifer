@@ -16,7 +16,7 @@ jobs:
     
     defaults:
       run:
-        working-directory: ./scry
+        working-directory: ./cornifer
 
     steps:
     - uses: actions/checkout@v3
