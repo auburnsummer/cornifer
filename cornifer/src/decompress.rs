@@ -37,7 +37,7 @@ use crate::checkpoint::Checkpointer;
 use crate::header::read_header;
 use crate::huffman::MAX_HUFFMAN_BITS;
 use crate::{
-    circle::CircularBuffer, errors::ScryError, huffman::HuffmanTree, reader::ScryByteReader,
+    circle::CircularBuffer, errors::CorniferError, huffman::HuffmanTree, reader::CorniferByteReader,
 };
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -91,12 +91,12 @@ pub struct Deflator<R> {
     pub buffer: CircularBuffer,
     state: DeflatorState,
     in_final_block: bool,
-    reader: ScryByteReader<R>,
+    reader: CorniferByteReader<R>,
     checkpointer: Checkpointer,
 }
 
 impl<R: Read> Deflator<R> {
-    pub fn new(reader: ScryByteReader<R>, checkpointer: Checkpointer) -> Self {
+    pub fn new(reader: CorniferByteReader<R>, checkpointer: Checkpointer) -> Self {
         Self {
             buffer: CircularBuffer::new(THIRTY_TWO_KILOBYTES),
             state: DeflatorState::GZIPHeader,
@@ -106,14 +106,14 @@ impl<R: Read> Deflator<R> {
         }
     }
 
-    pub fn read_block_header(&mut self) -> Result<BlockHeader, ScryError> {
+    pub fn read_block_header(&mut self) -> Result<BlockHeader, CorniferError> {
         let is_final = self.reader.read_bit()?;
         let block_bits = self.reader.read_n_bits_le(2)?;
         let block_type = match block_bits {
             0b00 => BlockType::NoCompression,
             0b01 => BlockType::FixedHuffman,
             0b10 => BlockType::DynamicHuffman,
-            _ => return Err(ScryError::InvalidBlockType),
+            _ => return Err(CorniferError::InvalidBlockType),
         };
         Ok(BlockHeader {
             block_type,
@@ -122,7 +122,7 @@ impl<R: Read> Deflator<R> {
     }
 
     /// Decode a symbol with the given huffman tree and reader.
-    pub fn decode(reader: &mut ScryByteReader<R>, tree: &HuffmanTree) -> Result<u16, ScryError> {
+    pub fn decode(reader: &mut CorniferByteReader<R>, tree: &HuffmanTree) -> Result<u16, CorniferError> {
         let mut byte: u16 = 0;
         let mut len = 0;
         loop {
@@ -133,7 +133,7 @@ impl<R: Read> Deflator<R> {
                 break Ok(symbol);
             };
             if (len as u16) > MAX_HUFFMAN_BITS {
-                break Err(ScryError::InvalidHuffmanCode {
+                break Err(CorniferError::InvalidHuffmanCode {
                     code: byte,
                     position: reader.current_byte,
                     bit: reader.current_bit,
@@ -142,7 +142,7 @@ impl<R: Read> Deflator<R> {
         }
     }
 
-    pub fn on_block_data_start(&mut self) -> Result<(), ScryError> {
+    pub fn on_block_data_start(&mut self) -> Result<(), CorniferError> {
         self.checkpointer.on_block_data_start(self.reader.current_byte, self.reader.current_bit, self.buffer.get_normalized_buffer()?)?;
 
         Ok(())
@@ -153,7 +153,7 @@ impl<R: Read> Deflator<R> {
     ///  - the number of bytes written can and will be 0 (e.g. reading a GZIP header does not output any bytes.)
     ///  - depending on factors such as the input buffer length, a state may not complete in a call. in this case,
     ///    we remain in the same state (albeit with different parameters), and the function will need to be called again.
-    fn state_transition(&mut self, buf: &mut [u8]) -> Result<usize, ScryError> {
+    fn state_transition(&mut self, buf: &mut [u8]) -> Result<usize, CorniferError> {
         let mut bytes_written = 0;
         self.state = match &mut self.state {
             // Read the header. We could have also been sent back here after the end of a previous gzip member.
@@ -162,7 +162,7 @@ impl<R: Read> Deflator<R> {
             DeflatorState::GZIPHeader => match read_header(&mut self.reader) {
                 Ok(_header) => DeflatorState::BlockHeader,
                 Err(err) => match err {
-                    ScryError::ExpectedEOF => DeflatorState::Done,
+                    CorniferError::ExpectedEOF => DeflatorState::Done,
                     _ => return Err(err),
                 },
             },
@@ -201,7 +201,7 @@ impl<R: Read> Deflator<R> {
                 let nlen = self.reader.read_u16_le()?;
                 if nlen != !len {
                     // nlen should be 1's compliment of len
-                    return Err(ScryError::InvalidNonCompressedBlockHeader {
+                    return Err(CorniferError::InvalidNonCompressedBlockHeader {
                         position: self.reader.current_byte,
                         expected: !len,
                         found: nlen,
@@ -266,7 +266,7 @@ impl<R: Read> Deflator<R> {
                         if symbol == 16 {
                             // Copy the previous code length 3 - 6 times.
                             if index == 0 {
-                                return Err(ScryError::InvalidDynamicBlockCodeLength);
+                                return Err(CorniferError::InvalidDynamicBlockCodeLength);
                             }
                             to_copy = combined_cls[index - 1];
                             times_to_copy = 3 + self.reader.read_n_bits_le(2)?;
@@ -405,7 +405,7 @@ impl<R: Read> Deflator<R> {
                 let crc32_expected = self.buffer.crc32();
                 let crc32 = self.reader.read_u32_le()?;
                 if crc32_expected != crc32 {
-                    return Err(ScryError::InvalidGZIPCRC {
+                    return Err(CorniferError::InvalidGZIPCRC {
                         position: self.reader.current_byte,
                         expected: crc32_expected,
                         found: crc32,
@@ -415,7 +415,7 @@ impl<R: Read> Deflator<R> {
                 let isize_expected = self.buffer.counter();
                 let isize = self.reader.read_u32_le()?;
                 if isize_expected != isize {
-                    return Err(ScryError::InvalidGZIPIsize {
+                    return Err(CorniferError::InvalidGZIPIsize {
                         position: self.reader.current_byte,
                         expected: isize_expected,
                         found: isize,
@@ -429,8 +429,8 @@ impl<R: Read> Deflator<R> {
         Ok(bytes_written)
     }
 
-    // Implementation of Read trait that uses ScryError instead of std::io::Error
-    fn read_internal(&mut self, buf: &mut [u8]) -> Result<usize, ScryError> {
+    // Implementation of Read trait that uses CorniferError instead of std::io::Error
+    fn read_internal(&mut self, buf: &mut [u8]) -> Result<usize, CorniferError> {
         let mut bytes_written = 0;
         // keep going until we've written at least one byte, or we're done.
         // self.state_transition may return 0 even if we're not done. The only way to tell if we're done is if we're in DeflatorState::Done
@@ -469,7 +469,7 @@ mod test {
     use crate::{
         checkpoint::Checkpointer,
         decompress::{BlockType, Deflator},
-        reader::ScryByteReader,
+        reader::CorniferByteReader,
     };
 
     #[rstest]
@@ -479,7 +479,7 @@ mod test {
         e.write_all(b"hello world").unwrap();
         let v = e.finish().unwrap();
         let v = v.as_slice();
-        let reader = ScryByteReader::new(v);
+        let reader = CorniferByteReader::new(v);
         let mut deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
         let block_header = deflator.read_block_header().unwrap();
 
@@ -494,7 +494,7 @@ mod test {
         e.write_all(b"hello world").unwrap();
         let v = e.finish().unwrap();
         let v = v.as_slice();
-        let reader = ScryByteReader::new(v);
+        let reader = CorniferByteReader::new(v);
         let mut deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
 
         let mut dest: Vec<u8> = Vec::new();
@@ -514,7 +514,7 @@ mod test {
         e.write_all(b"hello world").unwrap();
         let v = e.finish().unwrap();
         let v = v.as_slice();
-        let reader = ScryByteReader::new(v);
+        let reader = CorniferByteReader::new(v);
         let mut deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
 
         let mut dest: Vec<u8> = Vec::new();
@@ -535,7 +535,7 @@ mod test {
         e.write_all(b"hello world").unwrap();
         let v = e.finish().unwrap();
         let v = v.as_slice();
-        let reader = ScryByteReader::new(v);
+        let reader = CorniferByteReader::new(v);
         let deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
 
         let mut deflator = deflator.bytes();
@@ -563,7 +563,7 @@ mod test {
         e.write_all(b"aaaaaaaaaaaaaaaaaaaaaabbbbbbb").unwrap();
         let v = e.finish().unwrap();
         let v = v.as_slice();
-        let reader = ScryByteReader::new(v);
+        let reader = CorniferByteReader::new(v);
         let mut deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
         let mut dest: Vec<u8> = Vec::new();
 
@@ -584,7 +584,7 @@ mod test {
             .unwrap();
         let v = e.finish().unwrap();
         let v = v.as_slice();
-        let reader = ScryByteReader::new(v);
+        let reader = CorniferByteReader::new(v);
         let mut deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
         let mut dest: Vec<u8> = vec![0; 0];
 
@@ -613,7 +613,7 @@ mod test {
         v.append(&mut v2);
         let v = v.as_slice();
 
-        let reader = ScryByteReader::new(v);
+        let reader = CorniferByteReader::new(v);
         let mut deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
         let mut dest: Vec<u8> = vec![0; 0];
 
@@ -628,7 +628,7 @@ mod test {
     pub fn test_modest_proposal() {
         let input = include_bytes!("../testfiles/1080-0.txt.gz");
 
-        let reader = ScryByteReader::new(input.as_slice());
+        let reader = CorniferByteReader::new(input.as_slice());
         let mut deflator = Deflator::new(reader, Checkpointer::init_memory().unwrap());
         let mut dest: Vec<u8> = vec![0; 0];
 

@@ -3,7 +3,7 @@ use std::mem;
 use crc::{Crc, Digest, CRC_32_ISO_HDLC};
 use rand::Rng;
 
-use crate::errors::ScryError;
+use crate::errors::CorniferError;
 
 static CRC32: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
 
@@ -50,9 +50,9 @@ impl CircularBuffer {
     ///
     /// Note that size can be greater than lookback, because as a byte is copied into the
     /// buffer, it can be read again as input.  
-    pub fn push_from_buffer(&mut self, lookback: u16, size: u16) -> Result<(), ScryError> {
+    pub fn push_from_buffer(&mut self, lookback: u16, size: u16) -> Result<(), CorniferError> {
         if lookback > 32768 {
-            return Err(ScryError::InvalidLengthDistancePair { lookback, size });
+            return Err(CorniferError::InvalidLengthDistancePair { lookback, size });
         }
         let lookback = lookback as isize;
         let len = self.buffer.len() as isize;
@@ -67,7 +67,7 @@ impl CircularBuffer {
     /// Get the top n bytes of the buffer as a vector v.
     /// The _last_ item in v is the most _recent_ byte pushed to the buffer.
     /// The _first_ item in v is the nth most recent byte pushed to the buffer.
-    pub fn head(&self, n: u16) -> Result<Vec<u8>, ScryError> {
+    pub fn head(&self, n: u16) -> Result<Vec<u8>, CorniferError> {
         let mut v: Vec<u8> = Vec::new();
         for i in 0..n {
             let n1 = (n - i) as isize;
@@ -98,7 +98,7 @@ impl CircularBuffer {
         result
     }
 
-    pub fn get_normalized_buffer(&self) -> Result<Vec<u8>, ScryError> {
+    pub fn get_normalized_buffer(&self) -> Result<Vec<u8>, CorniferError> {
         self.head(self.buffer.len() as u16)
     }
 }

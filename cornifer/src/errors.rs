@@ -3,7 +3,7 @@ use std::string::FromUtf8Error;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum ScryError {
+pub enum CorniferError {
     #[error("Buffer size too large")]
     BufferSizeTooLarge,
 

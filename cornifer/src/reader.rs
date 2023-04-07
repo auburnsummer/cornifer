@@ -2,11 +2,11 @@ use std::io::Read;
 
 use crc::{Crc, Digest, CRC_32_ISO_HDLC};
 
-use crate::errors::ScryError;
+use crate::errors::CorniferError;
 
 static CRC32: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
 
-pub struct ScryByteReader<R> {
+pub struct CorniferByteReader<R> {
     // where we are in the file.
     pub current_byte: usize,
     pub current_bit: u8,
@@ -19,7 +19,7 @@ pub struct ScryByteReader<R> {
     digest: Option<Digest<'static, u32>>,
 }
 
-impl<R: Read> ScryByteReader<R> {
+impl<R: Read> CorniferByteReader<R> {
     pub fn new(reader: R) -> Self {
         Self {
             current_byte: 0,
@@ -30,13 +30,13 @@ impl<R: Read> ScryByteReader<R> {
         }
     }
 
-    fn read_exact_internal(&mut self, buf: &mut [u8]) -> Result<(), ScryError> {
+    fn read_exact_internal(&mut self, buf: &mut [u8]) -> Result<(), CorniferError> {
         let l = buf.len();
         match self.inner.read_exact(buf) {
             Ok(_) => (),
             Err(e) => match e.kind() {
-                std::io::ErrorKind::UnexpectedEof => return Err(ScryError::EOF),
-                _ => return Err(ScryError::from(e)),
+                std::io::ErrorKind::UnexpectedEof => return Err(CorniferError::EOF),
+                _ => return Err(CorniferError::from(e)),
             },
         }
         if let Some(digest) = &mut self.digest {
@@ -47,28 +47,28 @@ impl<R: Read> ScryByteReader<R> {
         Ok(())
     }
 
-    pub fn read_u8(&mut self) -> Result<u8, ScryError> {
+    pub fn read_u8(&mut self) -> Result<u8, CorniferError> {
         let mut buffer: [u8; 1] = [0; 1];
         self.read_exact_internal(&mut buffer)?;
 
         Ok(buffer[0])
     }
 
-    pub fn read_u16_le(&mut self) -> Result<u16, ScryError> {
+    pub fn read_u16_le(&mut self) -> Result<u16, CorniferError> {
         let mut buffer: [u8; 2] = [0; 2];
         self.read_exact_internal(&mut buffer)?;
 
         Ok(u16::from_le_bytes(buffer))
     }
 
-    pub fn read_u32_le(&mut self) -> Result<u32, ScryError> {
+    pub fn read_u32_le(&mut self) -> Result<u32, CorniferError> {
         let mut buffer: [u8; 4] = [0; 4];
         self.read_exact_internal(&mut buffer)?;
 
         Ok(u32::from_le_bytes(buffer))
     }
 
-    pub fn read_null_terminated_string(&mut self) -> Result<String, ScryError> {
+    pub fn read_null_terminated_string(&mut self) -> Result<String, CorniferError> {
         let mut v: Vec<u8> = vec![];
         loop {
             match self.read_u8()? {
@@ -91,7 +91,7 @@ impl<R: Read> ScryByteReader<R> {
         result.map(|d| d.finalize())
     }
 
-    pub fn read_bit(&mut self) -> Result<u8, ScryError> {
+    pub fn read_bit(&mut self) -> Result<u8, CorniferError> {
         if self.current_bit == 0 {
             self.buffer = self.read_u8()?;
         }
@@ -100,9 +100,9 @@ impl<R: Read> ScryByteReader<R> {
         Ok(result)
     }
 
-    pub fn read_n_bits_le(&mut self, n: u8) -> Result<u16, ScryError> {
+    pub fn read_n_bits_le(&mut self, n: u8) -> Result<u16, CorniferError> {
         if n > 16 {
-            return Err(ScryError::InvalidNumberOfBits { num: n });
+            return Err(CorniferError::InvalidNumberOfBits { num: n });
         }
         let mut value: u16 = 0;
         for i in 0..n {
@@ -126,17 +126,17 @@ impl<R: Read> ScryByteReader<R> {
 mod test {
     use rstest::*;
 
-    use super::ScryByteReader;
+    use super::CorniferByteReader;
 
     #[fixture]
-    pub fn reader1() -> ScryByteReader<&'static [u8]> {
+    pub fn reader1() -> CorniferByteReader<&'static [u8]> {
         let inner: &[u8] = &[5, 6, 7, 0, 1, 2, 3, 4];
-        let sr = ScryByteReader::new(inner);
+        let sr = CorniferByteReader::new(inner);
         sr
     }
 
     #[rstest]
-    pub fn test_read_u8(mut reader1: ScryByteReader<&'static [u8]>) {
+    pub fn test_read_u8(mut reader1: CorniferByteReader<&'static [u8]>) {
         let res = reader1.read_u8().expect("Fixture will always have value");
         assert_eq!(res, 5);
         assert_eq!(reader1.current_byte, 1);
@@ -146,7 +146,7 @@ mod test {
     }
 
     #[rstest]
-    pub fn test_read_u16_le(mut reader1: ScryByteReader<&'static [u8]>) {
+    pub fn test_read_u16_le(mut reader1: CorniferByteReader<&'static [u8]>) {
         let res = reader1
             .read_u16_le()
             .expect("Fixture will always have value");
@@ -157,7 +157,7 @@ mod test {
     }
 
     #[rstest]
-    pub fn test_read_u32_le(mut reader1: ScryByteReader<&'static [u8]>) {
+    pub fn test_read_u32_le(mut reader1: CorniferByteReader<&'static [u8]>) {
         let resk = reader1
             .read_u32_le()
             .expect("Fixture will always have value");
@@ -173,7 +173,7 @@ mod test {
         let inner: &[u8] = &[
             b'h', b'e', b'l', b'l', b'o', b' ', b'w', b'o', b'r', b'l', b'd', 0,
         ];
-        let mut sr = ScryByteReader::new(inner);
+        let mut sr = CorniferByteReader::new(inner);
         let s = sr.read_null_terminated_string().expect("Known value");
         assert_eq!(s, "hello world");
         assert_eq!(sr.current_byte, 12)
@@ -182,7 +182,7 @@ mod test {
     #[rstest]
     pub fn test_crc32_initial_value() {
         let inner: &[u8] = &[];
-        let mut sr = ScryByteReader::new(inner);
+        let mut sr = CorniferByteReader::new(inner);
         sr.begin_crc();
         let result = sr.end_crc().expect("should have value");
         assert_eq!(result, 0x0000);
@@ -191,7 +191,7 @@ mod test {
     #[rstest]
     pub fn test_crc32_one_byte() {
         let inner: &[u8] = &[b'h'];
-        let mut sr = ScryByteReader::new(inner);
+        let mut sr = CorniferByteReader::new(inner);
         sr.begin_crc();
         sr.read_u8().expect("known value");
         let result = sr.end_crc().expect("should have value");
@@ -201,7 +201,7 @@ mod test {
     #[rstest]
     pub fn test_crc32() {
         let inner: &[u8] = &[b'h', b'e', b'l', b'l', b'o'];
-        let mut sr = ScryByteReader::new(inner);
+        let mut sr = CorniferByteReader::new(inner);
         sr.begin_crc();
         for _ in 0..inner.len() {
             sr.read_u8().expect("known value");
@@ -213,7 +213,7 @@ mod test {
     #[rstest]
     pub fn test_crc32_long() {
         let inner: &[u8] = include_bytes!("../testfiles/testCompressThenConcat.txt.gz");
-        let mut sr = ScryByteReader::new(inner);
+        let mut sr = CorniferByteReader::new(inner);
         sr.begin_crc();
         for _ in 0..inner.len() {
             sr.read_u8().expect("known value");
@@ -225,7 +225,7 @@ mod test {
     #[rstest]
     pub fn test_read_bit() {
         let inner: &[u8] = &[0b10011001, 0b00011100];
-        let mut sr = ScryByteReader::new(inner);
+        let mut sr = CorniferByteReader::new(inner);
         assert_eq!(sr.current_byte, 0);
 
         assert_eq!(sr.read_bit().unwrap(), 1);
@@ -258,7 +258,7 @@ mod test {
     #[rstest]
     pub fn test_read_n_bits() {
         let inner: &[u8] = &[0b10011001, 0b00011100];
-        let mut sr = ScryByteReader::new(inner);
+        let mut sr = CorniferByteReader::new(inner);
         assert_eq!(sr.read_n_bits_le(2).unwrap(), 0b01);
         assert_eq!(sr.read_n_bits_le(2).unwrap(), 0b10);
         assert_eq!(sr.read_n_bits_le(2).unwrap(), 0b01);

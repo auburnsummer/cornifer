@@ -1,6 +1,6 @@
 use std::io::Read;
 
-use crate::{errors::ScryError, reader::ScryByteReader};
+use crate::{errors::CorniferError, reader::CorniferByteReader};
 
 #[derive(PartialEq, Debug)]
 pub struct GzipHeader {
@@ -29,9 +29,9 @@ pub enum OperatingSystem {
 }
 
 /**
- * Read a Header struct out of a ScryReader
+ * Read a Header struct out of a corniferReader
  */
-pub fn read_header<R: Read>(sr: &mut ScryByteReader<R>) -> Result<GzipHeader, ScryError> {
+pub fn read_header<R: Read>(sr: &mut CorniferByteReader<R>) -> Result<GzipHeader, CorniferError> {
     sr.begin_crc();
     // id1 and id2
     // btw if the first byte fails, we handle that differently, it might be an
@@ -39,18 +39,18 @@ pub fn read_header<R: Read>(sr: &mut ScryByteReader<R>) -> Result<GzipHeader, Sc
     let id1 = match sr.read_u8() {
         Ok(byte) => byte,
         Err(err) => match err {
-            ScryError::EOF => return Err(ScryError::ExpectedEOF),
+            CorniferError::EOF => return Err(CorniferError::ExpectedEOF),
             _ => return Err(err),
         },
     };
     let id2 = sr.read_u8()?;
     if id1 != 0x1f || id2 != 0x8b {
-        return Err(ScryError::NotGZIPHeader);
+        return Err(CorniferError::NotGZIPHeader);
     }
     // cm
     let cm = sr.read_u8()?;
     if cm != 8 {
-        return Err(ScryError::InvalidCompressionMethod);
+        return Err(CorniferError::InvalidCompressionMethod);
     }
     // flgs
     let flg = sr.read_u8()?;
@@ -103,7 +103,7 @@ pub fn read_header<R: Read>(sr: &mut ScryByteReader<R>) -> Result<GzipHeader, Sc
         let truncated = hcrc_actual as u16;
         let hcrc = sr.read_u16_le()?;
         if hcrc != truncated {
-            return Err(ScryError::InvalidHeaderCRC {
+            return Err(CorniferError::InvalidHeaderCRC {
                 expected: truncated,
                 found: hcrc,
             });
@@ -129,13 +129,13 @@ mod test {
 
     use crate::{
         header::{read_header, GzipHeader},
-        reader::ScryByteReader,
+        reader::CorniferByteReader,
     };
 
     #[rstest]
     fn read_header_bails_on_non_gzip_header() {
         let inner: &[u8] = &[5, 6, 7, 0, 1, 2, 3, 4];
-        let mut sr = ScryByteReader::new(Box::new(inner));
+        let mut sr = CorniferByteReader::new(Box::new(inner));
         let h = read_header(&mut sr);
         match h {
             Ok(_) => panic!("Return value should have been an Error."),
@@ -146,7 +146,7 @@ mod test {
     #[rstest]
     fn read_header_bails_on_not_deflate() {
         let inner: &[u8] = &[0x1f, 0x8b, 4];
-        let mut sr = ScryByteReader::new(Box::new(inner));
+        let mut sr = CorniferByteReader::new(Box::new(inner));
         let h = read_header(&mut sr);
         match h {
             Ok(_) => panic!("Return value should have been an Error."),
@@ -157,7 +157,7 @@ mod test {
     #[rstest]
     fn read_header_reads_valid_header_minimal() {
         let inner: &[u8] = include_bytes!("../testfiles/helloworld.gz");
-        let mut sr = ScryByteReader::new(Box::new(inner));
+        let mut sr = CorniferByteReader::new(Box::new(inner));
         let h = read_header(&mut sr);
         match h {
             Ok(header) => assert_eq!(
@@ -178,7 +178,7 @@ mod test {
     #[rstest]
     fn read_header_reads_valid_text_comment() {
         let inner: &[u8] = include_bytes!("../testfiles/test.gz");
-        let mut sr = ScryByteReader::new(Box::new(inner));
+        let mut sr = CorniferByteReader::new(Box::new(inner));
         let h = read_header(&mut sr);
         match h {
             Ok(header) => assert_eq!(
@@ -199,7 +199,7 @@ mod test {
     #[rstest]
     fn read_header_validates_correct_hcrc() {
         let inner: &[u8] = include_bytes!("../testfiles/testCompressThenConcat.txt.gz");
-        let mut sr = ScryByteReader::new(Box::new(inner));
+        let mut sr = CorniferByteReader::new(Box::new(inner));
         let h = read_header(&mut sr);
         match h {
             Ok(header) => assert_eq!(
@@ -220,7 +220,7 @@ mod test {
     #[rstest]
     fn read_header_errors_on_incorrect_hcrc() {
         let inner: &[u8] = include_bytes!("../testfiles/testIncorrectHCRC.txt.gz");
-        let mut sr = ScryByteReader::new(Box::new(inner));
+        let mut sr = CorniferByteReader::new(Box::new(inner));
         let h = read_header(&mut sr);
         match h {
             Ok(_) => panic!("Should have thrown an error"),

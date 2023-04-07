@@ -26,7 +26,7 @@ def main(source_file, checkpoint_file, block_id):
     c = conn.cursor()
 
     # Fetch the row with the specified block_id
-    c.execute("SELECT * FROM HuffmanBlock WHERE id = ?", (block_id,))
+    c.execute("SELECT * FROM DeflateBlock WHERE id = ?", (block_id,))
     row = c.fetchone()
     if row is None:
         print(f"No row found with id {block_id}")

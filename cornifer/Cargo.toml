@@ -1,7 +1,8 @@
 [package]
-name = "scry"
+name = "cornifer"
 version = "0.1.0"
 edition = "2021"
+description = "Script that finds DEFLATE blocks in a GZIP file"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

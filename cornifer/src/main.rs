@@ -1,9 +1,9 @@
 use clap::Parser;
 use flate2::CrcWriter;
 use indicatif::{ProgressBar, ProgressStyle};
-use scry::checkpoint::Checkpointer;
-use scry::decompress::Deflator;
-use scry::reader::ScryByteReader;
+use cornifer::checkpoint::Checkpointer;
+use cornifer::decompress::Deflator;
+use cornifer::reader::CorniferByteReader;
 use std::fs;
 use std::io::sink;
 use std::io::BufReader;
@@ -38,7 +38,7 @@ fn main() -> Result<(), std::io::Error> {
         }
     };
     println!("Beginning checkpointing...");
-    let mut decompressor = Deflator::new(ScryByteReader::new(bf), checkpointer);
+    let mut decompressor = Deflator::new(CorniferByteReader::new(bf), checkpointer);
 
     let mut dest = CrcWriter::new(sink());
 

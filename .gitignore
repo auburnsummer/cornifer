@@ -17,8 +17,8 @@ Cargo.lock
 
 testfiles2/
 
-scry/flamegraph.svg
-scry/perf.data
-scry/perf.data.old
+cornifer/flamegraph.svg
+cornifer/perf.data
+cornifer/perf.data.old
 *.infgen
 *.sqlite3

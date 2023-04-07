@@ -2,7 +2,7 @@ use std::io::Cursor;
 
 use rusqlite::{blob::ZeroBlob, Connection, DatabaseName};
 
-use crate::{decompress::BlockType, errors::ScryError};
+use crate::{decompress::BlockType, errors::CorniferError};
 
 /**
  * Handles writing "checkpoints" (rows in an sqlite table).
@@ -24,7 +24,7 @@ fn dist_in_bits(byte1: usize, bit1: u8, byte2: usize, bit2: u8) -> isize {
     let bit1 = bit1 as isize;
     let byte1 = byte1 as isize;
     let byte2 = byte2 as isize;
-    return ((byte2 - byte1) * 8) + (bit2 - bit1);
+    ((byte2 - byte1) * 8) + (bit2 - bit1)
 }
 
 pub struct Checkpointer {
@@ -36,7 +36,7 @@ pub struct Checkpointer {
     current_block_id: i64,
 }
 
-fn setup_connection(conn: &Connection) -> Result<(), ScryError> {
+fn setup_connection(conn: &Connection) -> Result<(), CorniferError> {
     // id: id of the block. not guaranteed to be sequential.
     // from_byte:
     // from_bit  : the byte and bit of the input (i.e. compressed stream) this checkpoint starts at.
@@ -49,7 +49,7 @@ fn setup_connection(conn: &Connection) -> Result<(), ScryError> {
     // data      : previous bytes of data before this block.
     conn.execute(
         "
-    CREATE TABLE HuffmanBlock (
+    CREATE TABLE DeflateBlock (
         id  INTEGER PRIMARY KEY AUTOINCREMENT,
         from_byte INTEGER NOT NULL,
         from_bit INTEGER NOT NULL,
@@ -64,32 +64,32 @@ fn setup_connection(conn: &Connection) -> Result<(), ScryError> {
         (),
     )?;
 
-    // id
-    // from_byte
-    // from_bit
-    // to_byte  : same as HuffmanBlock
-    // block: FK to HuffmanBlock. We need this to get the required huffman trees.
-    // data: previous bytes of data before this tick.
-    conn.execute(
-        "
-    CREATE TABLE Tick (
-        id  INTEGER PRIMARY KEY AUTOINCREMENT,
-        from_byte INTEGER NOT NULL,
-        from_bit INTEGER NOT NULL,
-        to_byte INTEGER NOT NULL,
-        block_id INTEGER NOT NULL,
-        data BLOB NOT NULL,
-        FOREIGN KEY (block_id) REFERENCES HuffmanBlock (id)
-    )",
-        (),
-    )?;
+    // // id
+    // // from_byte
+    // // from_bit
+    // // to_byte  : same as DeflateBlock
+    // // block: FK to DeflateBlock. We need this to get the required huffman trees.
+    // // data: previous bytes of data before this tick.
+    // conn.execute(
+    //     "
+    // CREATE TABLE Tick (
+    //     id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    //     from_byte INTEGER NOT NULL,
+    //     from_bit INTEGER NOT NULL,
+    //     to_byte INTEGER NOT NULL,
+    //     block_id INTEGER NOT NULL,
+    //     data BLOB NOT NULL,
+    //     FOREIGN KEY (block_id) REFERENCES DeflateBlock (id)
+    // )",
+    //     (),
+    // )?;
 
     Ok(())
 }
 
 impl Checkpointer {
     // Initialize a Checkpointer using an sqlite database in file.
-    pub fn init(path: String) -> Result<Self, ScryError> {
+    pub fn init(path: String) -> Result<Self, CorniferError> {
         let conn = Connection::open(path)?;
 
         setup_connection(&conn)?;
@@ -106,7 +106,7 @@ impl Checkpointer {
 
     // Initialize a Checkpointer using an sqlite database in memory.
     // I only expect this to be useful for tests.
-    pub fn init_memory() -> Result<Self, ScryError> {
+    pub fn init_memory() -> Result<Self, CorniferError> {
         let conn = Connection::open_in_memory()?;
 
         setup_connection(&conn)?;
@@ -143,7 +143,7 @@ impl Checkpointer {
         curr_byte: usize,
         bit: u8,
         data: Vec<u8>,
-    ) -> Result<(), ScryError> {
+    ) -> Result<(), CorniferError> {
         let curr_byte = if bit == 0 { curr_byte } else { curr_byte - 1 };
         let block_header_size_bits = dist_in_bits(self.emit_byte, self.emit_bit, curr_byte, bit);
 
@@ -155,7 +155,7 @@ impl Checkpointer {
         };
 
         self.conn.execute("
-            INSERT INTO HuffmanBlock (from_byte, from_bit, to_byte, block_type, header_len_bits, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            INSERT INTO DeflateBlock (from_byte, from_bit, to_byte, block_type, header_len_bits, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
         ", (self.emit_byte, self.emit_bit, self.to_byte, block_type, block_header_size_bits, ZeroBlob(data.len().try_into().expect("Max size for data will be 32kb, so this should always fit"))))?;
 
         // Get the row id off the BLOB we just inserted.
@@ -164,7 +164,7 @@ impl Checkpointer {
         // Open the BLOB we just inserted for IO.
         let mut blob =
             self.conn
-                .blob_open(DatabaseName::Main, "HuffmanBlock", "data", rowid, false)?;
+                .blob_open(DatabaseName::Main, "DeflateBlock", "data", rowid, false)?;
         let mut file = Cursor::new(data);
         // copy the vector into the SQL blob.
         std::io::copy(&mut file, &mut blob)?;
@@ -179,7 +179,7 @@ impl Checkpointer {
         bit: u8,
         to_byte: usize,
         crc32: u32
-    ) -> Result<(), ScryError> {
+    ) -> Result<(), CorniferError> {
         let curr_byte = if bit == 0 { curr_byte } else { curr_byte - 1 };
         // this is the corresponding row that's already been inserted.
         let rowid = self.current_block_id;
@@ -192,11 +192,11 @@ impl Checkpointer {
         let formatted_crc = format!("{crc32:x}");
 
         self.conn.execute("
-            UPDATE HuffmanBlock
+            UPDATE DeflateBlock
             SET crc32 = ?1,
                 len = ?2,
                 block_len_bits = ?3
-            WHERE HuffmanBlock.id = ?4
+            WHERE DeflateBlock.id = ?4
         ", (formatted_crc, uncompressed_block_size, entire_block_size_bits, rowid))?;
 
         Ok(())
