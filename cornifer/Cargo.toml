@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "Script that finds DEFLATE blocks in a GZIP file"
 license = "AGPL-3.0-or-later"
+repository = "https://github.com/auburnsummer/cornifer"
+keywords = ["gzip"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
