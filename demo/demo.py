@@ -32,7 +32,7 @@ def main(source_file, checkpoint_file, block_id):
         print(f"No row found with id {block_id}")
         return
 
-    data = row['data']
+    data = zlib.decompress(row['data'], -15)
 
     vfile = io.BytesIO()
     # write a noncompressed block with the seed data from the row.

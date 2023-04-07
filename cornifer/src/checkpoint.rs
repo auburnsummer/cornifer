@@ -1,5 +1,6 @@
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 
+use flate2::{read::DeflateEncoder, Compression};
 use rusqlite::{blob::ZeroBlob, Connection, DatabaseName};
 
 use crate::{decompress::BlockType, errors::CorniferError};
@@ -154,9 +155,13 @@ impl Checkpointer {
             BlockType::DynamicHuffman => "dynamic",
         };
 
+        let mut encoder = DeflateEncoder::new(Cursor::new(data), Compression::best());
+        let mut compressed_data = Vec::new();
+        encoder.read_to_end(&mut compressed_data)?;
+
         self.conn.execute("
             INSERT INTO DeflateBlock (from_byte, from_bit, to_byte, block_type, header_len_bits, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-        ", (self.emit_byte, self.emit_bit, self.to_byte, block_type, block_header_size_bits, ZeroBlob(data.len().try_into().expect("Max size for data will be 32kb, so this should always fit"))))?;
+        ", (self.emit_byte, self.emit_bit, self.to_byte, block_type, block_header_size_bits, ZeroBlob(compressed_data.len().try_into().expect("Max size for data will be 32kb, so this should always fit"))))?;
 
         // Get the row id off the BLOB we just inserted.
         let rowid = self.conn.last_insert_rowid();
@@ -165,7 +170,7 @@ impl Checkpointer {
         let mut blob =
             self.conn
                 .blob_open(DatabaseName::Main, "DeflateBlock", "data", rowid, false)?;
-        let mut file = Cursor::new(data);
+        let mut file = Cursor::new(compressed_data);
         // copy the vector into the SQL blob.
         std::io::copy(&mut file, &mut blob)?;
 
